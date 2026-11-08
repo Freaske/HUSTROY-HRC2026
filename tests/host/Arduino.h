@@ -9,6 +9,10 @@
 constexpr int LOW = 0;
 constexpr int HIGH = 1;
 constexpr int OUTPUT = 1;
+constexpr int INPUT = 0;
+constexpr int INPUT_PULLUP = 2;
+constexpr int ADC_11db = 3;
+#define ANALOG 0xC0 // Real Arduino macro: guard against enum-name collisions.
 
 struct FakeSerial {
     std::deque<unsigned char> input;
@@ -28,5 +32,9 @@ extern FakeSerial Serial;
 unsigned long millis();
 void pinMode(int pin, int mode);
 void digitalWrite(int pin, int value);
+int digitalRead(int pin);
+int analogRead(int pin);
+void analogReadResolution(uint8_t bits);
+void analogSetPinAttenuation(int pin, int attenuation);
 bool ledcAttach(uint8_t pin, uint32_t frequency, uint8_t bits);
 bool ledcWrite(uint8_t pin, uint32_t duty);

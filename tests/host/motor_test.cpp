@@ -5,6 +5,10 @@
 #include <map>
 #include "config.h"
 #include "motor.h"
+#include "modes.h"
+#include "pid.h"
+#include <cmath>
+#include <limits>
 
 void setup();
 void loop();
@@ -18,6 +22,7 @@ int attachCalls = 0;
 int writeCalls = 0;
 int failAttachAt = -1;
 int failWriteAt = -1;
+std::map<int, int> rawInputs;
 
 unsigned long millis() { return nowMs; }
 int gpio_set_level(int pin, unsigned int value) {
@@ -26,9 +31,22 @@ int gpio_set_level(int pin, unsigned int value) {
     return 0;
 }
 void pinMode(int pin, int mode) {
-    assert(pin >= 0 && pin <= 33);
-    if (pin != STATUS_LED_PIN) assert(levels.at(pin) == LOW);
+    assert(pin >= 0 && pin <= 39);
+    if (mode == OUTPUT && pin != STATUS_LED_PIN) assert(levels.at(pin) == LOW);
     modes[pin] = mode;
+}
+int digitalRead(int pin) {
+    assert(modes.at(pin) == INPUT || modes.at(pin) == INPUT_PULLUP);
+    return rawInputs.count(pin) ? rawInputs.at(pin) : (modes.at(pin) == INPUT_PULLUP ? HIGH : LOW);
+}
+int analogRead(int pin) {
+    assert(modes.at(pin) == INPUT);
+    return rawInputs.count(pin) ? rawInputs.at(pin) : 0;
+}
+void analogReadResolution(uint8_t bits) { assert(bits == 12); }
+void analogSetPinAttenuation(int pin, int attenuation) {
+    assert(pin == 32 || pin == 33 || pin == 34 || pin == 35 || pin == 36 || pin == 39);
+    assert(attenuation == ADC_11db);
 }
 void digitalWrite(int pin, int value) {
     assert(modes.at(pin) == OUTPUT);  // Core 3.x requires pinMode first.
@@ -82,6 +100,15 @@ void expectSpeeds(int left, int right) {
                   LEFT_MOTOR_IS_CHANNEL_A ? right : left);
 }
 
+void sendArmed(const std::string& command) {
+    send("ARM\n");
+    assert(modesStatus().armed);
+    expectStopped(); // ARM never drives either channel.
+    send(command);
+}
+
+#include "integration_checks.h"
+
 int main(int argc, char** argv) {
     assert(argc == 2);
     const std::string scenario = argv[1];
@@ -91,15 +118,37 @@ int main(int argc, char** argv) {
     motorStop();
     assert(levels.empty() && attachCalls == 0 && writeCalls == 0);
 
+    if (scenario == "logic") {
+        runPureLogicChecks();
+        std::cout << "PASS: logic (all 32 patterns, normalization, PID and mixing)\n";
+        return 0;
+    }
+    if (scenario.rfind("system-", 0) == 0) {
+        if (SENSOR_HARDWARE_ENABLED) setPattern("00100");
+        if (MODE_BUTTON_ENABLED) rawInputs[MODE_BUTTON_PIN] = scenario == "system-held-button" ? LOW : HIGH;
+        setup();
+        runSystemChecks(scenario);
+        std::cout << "PASS: " << scenario << '\n';
+        return 0;
+    }
+
     if (scenario == "attach-a") failAttachAt = 1;
     if (scenario == "attach-b") failAttachAt = 2;
     if (scenario == "init-write") failWriteAt = 1;
     if (scenario == "init-stop") failWriteAt = 3;
     setup();
 
+    if (scenario == "arming") {
+        runArmingChecks();
+        std::cout << "PASS: arming, DISARM, SET and safe mode transitions\n";
+        return 0;
+    }
+
     if (!MOTOR_HARDWARE_ENABLED) {
         assert(!motorIsReady() && attachCalls == 0 && writeCalls == 0);
-        send("LEFT 30\nRIGHT -30\nBOTH 50\nSTOP\nHELP\nSTATUS\n");
+        send("ARM\nLEFT 30\nRIGHT -30\nBOTH 50\nSET 30 -30\nDISARM\nSTOP\nHELP\nSTATUS\n");
+        assert(!modesStatus().armed);
+        send("MODE SENSOR_TEST\nMODE LINE_FOLLOW\nRUN\nSTOP\nMODE MOTOR_TEST\n");
         assert(levels.size() == 1 && levels.count(STATUS_LED_PIN));
         assert(Serial.output.find("BLOCKED") != std::string::npos);
     } else if (scenario == "attach-a" || scenario == "attach-b" ||
@@ -142,7 +191,7 @@ int main(int argc, char** argv) {
             assert(!motorIsReady());
             expectStopped();
         } else {
-            send("LEFT 30\r\n");
+            sendArmed("LEFT 30\r\n");
             expectSpeeds(30, 0);
             nowMs += MOTOR_TEST_TIMEOUT_MS - 1;
             loop();
@@ -150,13 +199,13 @@ int main(int argc, char** argv) {
             ++nowMs;
             loop();
             expectStopped();
-            send("RIGHT -40\n");
+            sendArmed("RIGHT -40\n");
             expectSpeeds(0, -40);
-            send("BOTH 50\n");
+            sendArmed("BOTH 50\n");
             expectSpeeds(50, 50);
             send("STOP\n");
             expectStopped();
-            send("BOTH -50\n");
+            sendArmed("BOTH -50\n");
             expectSpeeds(-50, -50);
             send("!");  // No newline needed; remainder of line is discarded.
             expectStopped();
@@ -171,25 +220,25 @@ int main(int argc, char** argv) {
                 "STOP extra\n", std::string(90, 'A') + "\n",
                 std::string("BOTH 30\0junk\n", 13)};
             for (const auto& bad : invalid) {
-                send("BOTH 30\n");
+                sendArmed("BOTH 30\n");
                 expectSpeeds(30, 30);
                 send(bad);
                 expectStopped();
             }
             nowMs = ULONG_MAX - 100;
-            send("BOTH 30\n");
+            sendArmed("BOTH 30\n");
             nowMs += MOTOR_TEST_TIMEOUT_MS;
             loop();
             expectStopped();  // Unsigned millis rollover.
-            send("BOTH 30\n");
+            sendArmed("BOTH 30\n");
             nowMs += 400;
             send("STATUS\nHELP\n");
             nowMs += 100;
             loop();
             expectStopped();  // HELP/STATUS must not extend the deadline.
-            send("BOTH 30\n");
+            sendArmed("BOTH 30\n");
             nowMs += 400;
-            send("RIGHT 40\n");
+            sendArmed("RIGHT 40\n");
             nowMs += 100;
             loop();
             expectSpeeds(0, 40);  // A new valid motion starts a new pulse.

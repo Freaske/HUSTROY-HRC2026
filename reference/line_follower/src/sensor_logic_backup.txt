@@ -1,0 +1,81 @@
+#include <iostream>
+#include <string>
+using namespace std ; 
+
+int main(){
+    int sensor[5];
+    string direction;
+    float position = 0 ;
+    float positionSum = 0;
+    int activeSensorCount = 0;
+    cout<<"Enter 5 sensor values: ";
+    for(int i = 0 ; i < 5 ;i++){
+        cin>> sensor[i];
+    }
+    for(int i = 0 ; i < 5 ; i ++){
+        if(sensor[i]== 1 ){
+            positionSum += i - 2;
+            activeSensorCount++ ; 
+        }
+    }
+    if(activeSensorCount > 0){
+
+            position = positionSum/ activeSensorCount;
+        } 
+    cout<<"Sensor readings: ";
+    
+    for(int i = 0 ; i < 5 ; i++){
+        cout<<sensor[i]<<" ";
+    }
+
+    if (sensor[0] == 1 && sensor[1] == 1 &&
+    sensor[2] == 1 && sensor[3] == 1 &&
+    sensor[4] == 1) {
+    direction="INTERSECTION";
+    }
+    else if (sensor[1] == 1 && sensor[2] == 1 && sensor[3] == 1) {
+    direction="FORWARD";
+    }
+     else if (sensor[0] == 1 && sensor[4] == 1) {
+        direction="INTERSECTION";
+    }
+    else if(sensor[1]==1 && sensor[2]==1){
+        direction="LEFT";
+    }
+    else if (sensor[2] == 1 && sensor[3] == 1) {
+        direction="RIGHT";
+        
+    }
+    else if (sensor[2] == 1){
+        direction="FORWARD";
+        
+    }
+    else if(sensor[1]==1){
+       direction="LEFT";
+       
+    }
+    else if(sensor[0]==1){
+        direction="LEFT";
+       
+    }
+    else if(sensor[3]==1){
+        direction="RIGHT";
+       
+    }
+    else if(sensor[4]==1){
+        direction="RIGHT";
+       
+    }
+    else{
+        direction="LOST";
+    }
+        cout << "\nDirection: " << direction;
+   if(activeSensorCount > 0){
+    cout << "\nPosition: " << position;
+    }
+    else{
+    cout << "\nPosition: LOST";
+    }
+
+   return 0 ;
+}

@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "author": "HUSTROY proposal - digital signals only, not a TB6612 power simulation",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": 0, "left": 0, "attrs": {} },
+    { "type": "wokwi-resistor", "id": "r1", "top": -40, "left": 260, "attrs": { "value": "220" } },
+    { "type": "wokwi-led", "id": "led1", "top": -40, "left": 360, "attrs": { "color": "green" } },
+    { "type": "wokwi-logic-analyzer", "id": "logic", "top": 100, "left": 300,
+      "attrs": { "channelNames": "PWMA,AIN1,AIN2,PWMB,BIN1,BIN2,STBY,unused" } },
+    { "type": "wokwi-resistor", "id": "standbyPullDown", "top": 260, "left": 200, "attrs": { "value": "10000" } }
+  ],
+  "connections": [
+    ["esp:2", "r1:1", "green", []],
+    ["r1:2", "led1:A", "green", []],
+    ["led1:C", "esp:GND.1", "black", []],
+    ["esp:25", "logic:D0", "blue", []],
+    ["esp:26", "logic:D1", "green", []],
+    ["esp:27", "logic:D2", "green", []],
+    ["esp:18", "logic:D3", "blue", []],
+    ["esp:19", "logic:D4", "orange", []],
+    ["esp:23", "logic:D5", "orange", []],
+    ["esp:4", "logic:D6", "purple", []],
+    ["esp:4", "standbyPullDown:1", "purple", []],
+    ["standbyPullDown:2", "esp:GND.1", "black", []],
+    ["logic:GND", "esp:GND.1", "black", []]
+  ]
+}
