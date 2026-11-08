@@ -2,7 +2,7 @@
 """Compile REAL firmware sources against host doubles. No hardware is accessed.
 
 GPIO fixtures below exist ONLY in temporary host-test config copies. They are
-NOT a physical/simulation wiring recommendation. Production config stays locked.
+NOT a physical/simulation wiring recommendation. Tests never access hardware.
 Run: python3 tests/run_host_tests.py (requires a C++ compiler, e.g. macOS clang++).
 """
 from pathlib import Path
@@ -52,7 +52,14 @@ def build(folder, changes, expect_failure=False,
 def main():
     with tempfile.TemporaryDirectory(prefix="hustroy-motor-tests-") as temporary:
         folder = Path(temporary)
-        build(folder, {})
+        # Verify the actual enabled bench mapping too; no physical GPIO access.
+        if "MOTOR_HARDWARE_ENABLED = true;" in CONFIG:
+            build(folder, {})
+            for scenario in ["driver", "arming"]:
+                subprocess.run([str(folder / "test"), scenario], check=True)
+            print("PASS: current bench config driver and arming", flush=True)
+        # Exercise USB-only diagnostics even when the production bench config is enabled.
+        build(folder, {"MOTOR_HARDWARE_ENABLED": "false"})
         subprocess.run([str(folder / "test"), "disabled"], check=True)
         subprocess.run([str(folder / "test"), "logic"], check=True)
         enabled = {**FIXTURE, "MOTOR_HARDWARE_ENABLED": "true"}
@@ -67,7 +74,7 @@ def main():
             build(folder, {**enabled, **changes})
             subprocess.run([str(folder / "test"), "driver"], check=True)
         for name, changes in [
-            ("unassigned", {"MOTOR_HARDWARE_ENABLED": "true"}),
+            ("unassigned", {**enabled, "MOTOR_AIN1_PIN": -1}),
             ("duplicate", {**enabled, "MOTOR_BIN2_PIN": 18}),
             ("input-only", {**enabled, "MOTOR_BIN2_PIN": 34}),
             ("flash", {**enabled, "MOTOR_BIN2_PIN": 6}),

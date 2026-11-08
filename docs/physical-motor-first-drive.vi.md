@@ -1,5 +1,10 @@
 # Thử motor vật lý: hai bánh độc lập, ARM và DISARM
 
+> Cập nhật cấu hình: theo yêu cầu người dùng, driver đã bật cho thử motor
+> thủ công, vẫn chờ ARM. Quy trình hiện tại ở [manual-motor-bench.vi.md](manual-motor-bench.vi.md).
+> Các kết quả “GPIO=-1/hardware khóa” bên dưới ghi lại pha trước;
+> chúng không còn mô tả cấu hình mặc định hiện tại. Chưa có kiểm chứng motor thật.
+
 Tài liệu này cập nhật giao diện thử motor của pha trước. Firmware thật vẫn
 khóa phần cứng, bảy GPIO=-1. Không upload hoặc cấp nguồn motor trong lần làm
 việc này. Board ESP32 có ảnh; chưa truy cập được ảnh khung xe/breakout mới.
