@@ -10,16 +10,18 @@ constexpr unsigned long STATUS_LED_INTERVAL_MS = 500;
 constexpr int MAX_SPEED = 150;
 constexpr int BASE_SPEED = 50;
 
-// HARDWARE LOCK: only enable after Toan confirms wiring, board and supplies.
-// -1 means UNASSIGNED, never an ESP32 GPIO. No final mapping is assumed.
-constexpr bool MOTOR_HARDWARE_ENABLED = false;
-constexpr int MOTOR_PWMA_PIN = -1;
-constexpr int MOTOR_AIN1_PIN = -1;
-constexpr int MOTOR_AIN2_PIN = -1;
-constexpr int MOTOR_PWMB_PIN = -1;
-constexpr int MOTOR_BIN1_PIN = -1;
-constexpr int MOTOR_BIN2_PIN = -1;
-constexpr int MOTOR_STBY_PIN = -1;
+// User-requested manual motor bench profile; startup still STOPPED/DISARMED.
+// Pins follow the wiring discussion (AIN1=D13, AIN2=D14). Electrical ratings
+// and physical channel/direction have NOT been independently verified.
+// Disconnect VM during upload; lift wheels before ARM. Set false for USB-only diagnostics.
+constexpr bool MOTOR_HARDWARE_ENABLED = true;
+constexpr int MOTOR_PWMA_PIN = 18;
+constexpr int MOTOR_AIN1_PIN = 13;
+constexpr int MOTOR_AIN2_PIN = 14;
+constexpr int MOTOR_PWMB_PIN = 19;
+constexpr int MOTOR_BIN1_PIN = 21;
+constexpr int MOTOR_BIN2_PIN = 22;
+constexpr int MOTOR_STBY_PIN = 23;
 
 // Logical left/right can be swapped without changing the driver's A/B wiring.
 // This provisional convention must be confirmed by Toan before enabling.

@@ -148,6 +148,11 @@ int main(int argc, char** argv) {
         assert(!motorIsReady() && attachCalls == 0 && writeCalls == 0);
         send("ARM\nLEFT 30\nRIGHT -30\nBOTH 50\nSET 30 -30\nDISARM\nSTOP\nHELP\nSTATUS\n");
         assert(!modesStatus().armed);
+        assert(!modesStatus().running);
+        assert(Serial.output.find("startup STOPPED and DISARMED") != std::string::npos);
+        assert(Serial.output.find("HELP | STATUS | ARM") != std::string::npos);
+        assert(Serial.output.find("MODE=MOTOR_TEST ARMED=0 RUN=0 MOTOR=DISABLED/FAULT") != std::string::npos);
+        assert(attachCalls == 0 && writeCalls == 0); // Diagnostics never allocate motor PWM.
         send("MODE SENSOR_TEST\nMODE LINE_FOLLOW\nRUN\nSTOP\nMODE MOTOR_TEST\n");
         assert(levels.size() == 1 && levels.count(STATUS_LED_PIN));
         assert(Serial.output.find("BLOCKED") != std::string::npos);

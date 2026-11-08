@@ -1,6 +1,13 @@
 // PROPOSAL ONLY: based on the 30-pin board photo. Not compiled by PlatformIO.
 // Replace matching definitions in include/config.h ONLY after user approval.
 // Do not append duplicate definitions. Hardware stays disabled during review.
+// Current upload guide and post-approval motor-only changes:
+// docs/esp32-upload-guide.vi.md. This historical proposal is not live config.
+// Latest user report: wiring connected using D13/D14; motor supply is four
+// AA cells marked 1.5V (about 6V nominal if series). Not a measured voltage.
+// Exact motor voltage/stall current, supply polarity, breakout and continuity
+// remain unverified. This proposal snapshot stays disabled; live config was
+// later enabled for manual bench tests at the user's explicit request.
 constexpr bool MOTOR_HARDWARE_ENABLED = false;
 constexpr int MOTOR_PWMA_PIN = 18;  // photo: D18
 constexpr int MOTOR_AIN1_PIN = 13;  // photo: D13; replaces proposed D16
@@ -14,11 +21,13 @@ constexpr bool LEFT_MOTOR_IS_CHANNEL_A = true; // provisional A=left, B=right
 constexpr bool INVERT_LEFT_MOTOR = false;     // verify wheel direction later
 constexpr bool INVERT_RIGHT_MOTOR = false;
 
-// Reservation only: no sensor/button code implemented.
-constexpr int LINE_SENSOR_PINS[5] = {32, 33, 34, 35, 36}; // D32,D33,D34,D35,VP
-constexpr int ULTRASONIC_TRIG_PIN = 25; // photo: D25
-constexpr int ULTRASONIC_ECHO_PIN = 26; // photo: D26, verified 3.3V logic only
-constexpr int MODE_BUTTON_PIN = 27;     // photo: D27, future NO button to GND
+// Future reservations ONLY; do not paste these as a sensor configuration.
+// Sensor and optional mode-button code now exist but stay DISABLED in live config.
+// SENSOR_PINS proposal: {{32, 33, 34, 35, 36}} (D32,D33,D34,D35,VP).
+// RESERVED_ULTRASONIC_TRIG_PIN proposal: 25 (D25).
+// RESERVED_ULTRASONIC_ECHO_PIN proposal: 26 (D26); voltage NOT yet verified.
+// MODE_BUTTON_PIN proposal: 27 (D27), normally-open button to GND.
+// Do not enable sensors/button or change their pins during the first USB upload.
 
 // Retain current PWM bits=8, frequency=20000 Hz, MAX_SPEED=150,
 // BASE_SPEED=50, timeout=500 ms, status LED GPIO2 and Serial baud=115200.

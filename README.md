@@ -2,13 +2,21 @@
 
 ESP32 + PlatformIO: TB6612FNG, năm cảm biến AO/DO, PID và ba chế độ Serial.
 
-**Mặc định khóa motor và cảm biến**: chưa có GPIO/AO-DO/cực tính được xác nhận.
-Không nối nguồn động cơ cho đến khi kiểm tra xong phần cứng.
+**Bản thử motor thủ công:** driver bật với GPIO 18/13/14/19/21/22/23 theo
+bảng dây đã trao đổi. Khởi động vẫn STOPPED/DISARMED, cần ARM và lệnh chạy;
+cảm biến còn khóa nên LINE_FOLLOW chưa chạy được. Điện áp/dòng motor, dây
+và chiều bánh chưa được kiểm chứng độc lập. Ngắt VM khi nạp, kê bánh khi thử.
+
+Đọc [quy trình cho bản motor đang bật](docs/manual-motor-bench.vi.md).
 
 ```sh
 pio run -e esp32dev
 python3 tests/run_host_tests.py
 ```
+
+Lần đầu nạp board thật: đọc [hướng dẫn USB-C, Upload và Serial Monitor](docs/esp32-upload-guide.vi.md).
+Hướng dẫn upload cũng mô tả bản chẩn đoán cũ: muốn trở lại bản đó, đặt
+MOTOR_HARDWARE_ENABLED=false trước khi build/nạp.
 
 Serial 115200 baud, viết HOA và Enter:
 
