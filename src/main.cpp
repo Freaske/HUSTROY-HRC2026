@@ -2,7 +2,7 @@
 #include "config.h"
 
 // Stage 1 only: verify a non-blocking ESP32 blink in Wokwi.
-// Motor control, sensor reading, PID, and Bluetooth are NOT implemented.
+
 bool ledState = false;
 unsigned long lastBlinkAt = 0;
 
