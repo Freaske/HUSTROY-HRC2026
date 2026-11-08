@@ -1,8 +1,7 @@
 #pragma once
 #include <Arduino.h>
 
-// Week 0 smoke test: GPIO 2 drives a simulated external LED.
-// Confirm the actual board's LED pin before testing on hardware.
+
 constexpr uint8_t STATUS_LED_PIN = 2;
 constexpr unsigned long STATUS_LED_INTERVAL_MS = 500;
 
