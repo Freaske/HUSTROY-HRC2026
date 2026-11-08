@@ -15,9 +15,3 @@ constexpr bool INVERT_LEFT_MOTOR = false;
 constexpr bool INVERT_RIGHT_MOTOR = false;
 constexpr bool INVERT_LINE_SENSOR = false;
 constexpr bool INVERT_PID_ERROR = false;
-
-// TODO (Toan): Confirm each ESP32 GPIO for:
-//   TCRT5000 1..5 sensor outputs (five separate inputs),
-//   TB6612 AIN1/AIN2/BIN1/BIN2/PWMA/PWMB/STBY,
-//   ultrasonic TRIG/ECHO, push button (if used).
-// Do not guess pin mapping. Record actual wiring in docs/pin_mapping.md.
