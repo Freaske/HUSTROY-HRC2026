@@ -1,0 +1,25 @@
+// PROPOSAL ONLY: based on the 30-pin board photo. Not compiled by PlatformIO.
+// Replace matching definitions in include/config.h ONLY after user approval.
+// Do not append duplicate definitions. Hardware stays disabled during review.
+constexpr bool MOTOR_HARDWARE_ENABLED = false;
+constexpr int MOTOR_PWMA_PIN = 18;  // photo: D18
+constexpr int MOTOR_AIN1_PIN = 13;  // photo: D13; replaces proposed D16
+constexpr int MOTOR_AIN2_PIN = 14;  // photo: D14; replaces proposed D17
+constexpr int MOTOR_PWMB_PIN = 19;  // photo: D19
+constexpr int MOTOR_BIN1_PIN = 21;  // photo: D21
+constexpr int MOTOR_BIN2_PIN = 22;  // photo: D22
+constexpr int MOTOR_STBY_PIN = 23;  // photo: D23; 10k pull-down to common GND
+
+constexpr bool LEFT_MOTOR_IS_CHANNEL_A = true; // provisional A=left, B=right
+constexpr bool INVERT_LEFT_MOTOR = false;     // verify wheel direction later
+constexpr bool INVERT_RIGHT_MOTOR = false;
+
+// Reservation only: no sensor/button code implemented.
+constexpr int LINE_SENSOR_PINS[5] = {32, 33, 34, 35, 36}; // D32,D33,D34,D35,VP
+constexpr int ULTRASONIC_TRIG_PIN = 25; // photo: D25
+constexpr int ULTRASONIC_ECHO_PIN = 26; // photo: D26, verified 3.3V logic only
+constexpr int MODE_BUTTON_PIN = 27;     // photo: D27, future NO button to GND
+
+// Retain current PWM bits=8, frequency=20000 Hz, MAX_SPEED=150,
+// BASE_SPEED=50, timeout=500 ms, status LED GPIO2 and Serial baud=115200.
+// These duty values are not calibrated RPM or an electrical current limit.

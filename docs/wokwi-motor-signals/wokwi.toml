@@ -1,0 +1,6 @@
+[wokwi]
+version = 1
+# Open THIS folder in a separate VS Code window to select this diagram.
+# Build the main project first. No alternate/enabled firmware is supplied.
+firmware = '../../.pio/build/esp32dev/firmware.bin'
+elf = '../../.pio/build/esp32dev/firmware.elf'
