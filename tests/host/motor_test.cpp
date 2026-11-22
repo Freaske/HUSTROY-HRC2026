@@ -236,18 +236,18 @@ int main(int argc, char** argv) {
             loop();
             expectStopped();  // Unsigned millis rollover.
             sendArmed("BOTH 30\n");
-            nowMs += 400;
+            nowMs += MOTOR_TEST_TIMEOUT_MS - 100;
             send("STATUS\nHELP\n");
             nowMs += 100;
             loop();
             expectStopped();  // HELP/STATUS must not extend the deadline.
             sendArmed("BOTH 30\n");
-            nowMs += 400;
+            nowMs += MOTOR_TEST_TIMEOUT_MS - 100;
             sendArmed("RIGHT 40\n");
             nowMs += 100;
             loop();
             expectSpeeds(0, 40);  // A new valid motion starts a new pulse.
-            nowMs += 400;
+            nowMs += MOTOR_TEST_TIMEOUT_MS - 100;
             loop();
             expectStopped();
             assert(Serial.output.find("TIMEOUT") != std::string::npos);

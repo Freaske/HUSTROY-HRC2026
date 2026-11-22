@@ -40,7 +40,7 @@ dừng và hủy quyền. Bánh có thể còn trôi sau khi bỏ công suất.
    nguồn VM bằng công tắc/rút nguồn vật lý. Thông số motor/dòng kẹt còn chưa
    biết: không coi PWM thấp là bảo vệ dòng; cần đối chiếu định mức phần cứng.
 5. Khi phần điện phù hợp để cấp VM, gửi từng lệnh, không dán cả chuỗi:
-   MODE MOTOR_TEST → ARM → LEFT 30. Chờ timeout khoảng 500ms rồi STATUS;
+   MODE MOTOR_TEST → ARM → LEFT 30. Chờ timeout khoảng 10 s rồi STATUS;
    phải RUN=0/ARMED=0. Ghi bánh thực tế nhận lệnh.
 6. ARM lại → RIGHT 30; chờ dừng. Sau khi từng bánh đúng mới ARM → BOTH 30.
    Nếu 30 chưa quay, dừng kiểm tra nguồn/dây/ma sát trước khi thử 50; không

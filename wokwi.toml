@@ -2,3 +2,6 @@
 version = 1
 firmware = '.pio/build/esp32dev/firmware.bin'
 elf = '.pio/build/esp32dev/firmware.elf'
+# Expose the simulated UART so a real serial monitor (with local echo) can attach:
+#   pio device monitor -p rfc2217://localhost:4000 -b 115200 --echo --eol LF
+rfc2217ServerPort = 4000

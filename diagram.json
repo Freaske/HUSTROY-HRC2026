@@ -1,15 +1,62 @@
 {
   "version": 1,
-  "author": "HRC2026 team (starter template)",
+  "author": "HUSTROY HRC2026 - TB6612 control signals only (Wokwi has no TB6612/DC motor part)",
   "editor": "wokwi",
   "parts": [
-    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": -40, "left": -10, "attrs": {} },
-    { "type": "wokwi-resistor", "id": "r1", "top": 60, "left": 290, "attrs": { "value": "220" } },
-    { "type": "wokwi-led", "id": "led1", "top": 60, "left": 390, "attrs": { "color": "green" } }
+    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": 0, "left": 0, "attrs": {} },
+
+    { "type": "wokwi-led", "id": "ledPwmA", "top": -150, "left": 230, "attrs": { "color": "blue", "label": "PWMA 18" } },
+    { "type": "wokwi-led", "id": "ledAin1", "top": -150, "left": 300, "attrs": { "color": "green", "label": "AIN1 13" } },
+    { "type": "wokwi-led", "id": "ledAin2", "top": -150, "left": 370, "attrs": { "color": "red", "label": "AIN2 14" } },
+
+    { "type": "wokwi-led", "id": "ledPwmB", "top": -150, "left": 470, "attrs": { "color": "blue", "label": "PWMB 19" } },
+    { "type": "wokwi-led", "id": "ledBin1", "top": -150, "left": 540, "attrs": { "color": "green", "label": "BIN1 21" } },
+    { "type": "wokwi-led", "id": "ledBin2", "top": -150, "left": 610, "attrs": { "color": "red", "label": "BIN2 22" } },
+
+    { "type": "wokwi-led", "id": "ledStby", "top": -150, "left": 710, "attrs": { "color": "yellow", "label": "STBY 23" } },
+    { "type": "wokwi-resistor", "id": "rStby", "top": 40, "left": 700, "rotate": 90, "attrs": { "value": "10000" } },
+
+    { "type": "wokwi-resistor", "id": "rStatus", "top": 250, "left": 230, "attrs": { "value": "220" } },
+    { "type": "wokwi-led", "id": "ledStatus", "top": 200, "left": 330, "attrs": { "color": "white", "label": "STATUS 2" } },
+
+    { "type": "wokwi-logic-analyzer", "id": "logic", "top": 140, "left": 470,
+      "attrs": { "channelNames": "PWMA,AIN1,AIN2,PWMB,BIN1,BIN2,STBY,unused" } }
   ],
   "connections": [
-    ["esp:2", "r1:1", "green", []],
-    ["r1:2", "led1:A", "green", []],
-    ["led1:C", "esp:GND.1", "black", []]
-  ]
+    ["esp:TX", "$serialMonitor:RX", "", []],
+    ["esp:RX", "$serialMonitor:TX", "", []],
+
+    ["esp:18", "ledPwmA:A", "blue", []],
+    ["esp:13", "ledAin1:A", "green", []],
+    ["esp:14", "ledAin2:A", "red", []],
+    ["esp:19", "ledPwmB:A", "blue", []],
+    ["esp:21", "ledBin1:A", "green", []],
+    ["esp:22", "ledBin2:A", "red", []],
+    ["esp:23", "ledStby:A", "gold", []],
+    ["ledPwmA:C", "esp:GND.2", "black", []],
+    ["ledAin1:C", "esp:GND.2", "black", []],
+    ["ledAin2:C", "esp:GND.2", "black", []],
+    ["ledPwmB:C", "esp:GND.2", "black", []],
+    ["ledBin1:C", "esp:GND.2", "black", []],
+    ["ledBin2:C", "esp:GND.2", "black", []],
+    ["ledStby:C", "esp:GND.2", "black", []],
+
+    ["esp:23", "rStby:1", "gold", []],
+    ["rStby:2", "esp:GND.2", "black", []],
+
+    ["esp:2", "rStatus:1", "white", []],
+    ["rStatus:2", "ledStatus:A", "white", []],
+    ["ledStatus:C", "esp:GND.1", "black", []],
+
+    ["esp:18", "logic:D0", "blue", []],
+    ["esp:13", "logic:D1", "green", []],
+    ["esp:14", "logic:D2", "red", []],
+    ["esp:19", "logic:D3", "blue", []],
+    ["esp:21", "logic:D4", "green", []],
+    ["esp:22", "logic:D5", "red", []],
+    ["esp:23", "logic:D6", "gold", []],
+    ["logic:GND", "esp:GND.2", "black", []]
+  ],
+  "serialMonitor": { "display": "terminal", "newline": "lf" },
+  "dependencies": {}
 }
