@@ -1,0 +1,246 @@
+{
+  "kind": "Wokwi ESP32 GPIO capture; NO TB6612 or DC motor physics",
+  "firmware_id": "motor-bench-led2-v1",
+  "timeout_ms": 500,
+  "raw_vcd": "/tmp/hustroy-motor-demo-500ms.vcd",
+  "windows": [
+    {
+      "index": 1,
+      "command_left": 50,
+      "command_right": 0,
+      "start_s": 20.702686,
+      "stby_high_ms": 499.3589,
+      "direction_inputs": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "PWMA": {
+        "frequency_hz": 20000.0,
+        "duty_percent": 19.532
+      },
+      "PWMB": {
+        "constant": 1
+      },
+      "ending": "TIMEOUT"
+    },
+    {
+      "index": 2,
+      "command_left": 0,
+      "command_right": 50,
+      "start_s": 27.404242,
+      "stby_high_ms": 498.802,
+      "direction_inputs": [
+        0,
+        0,
+        1,
+        0
+      ],
+      "PWMA": {
+        "constant": 1
+      },
+      "PWMB": {
+        "frequency_hz": 20000.0,
+        "duty_percent": 19.532
+      },
+      "ending": "TIMEOUT"
+    },
+    {
+      "index": 3,
+      "command_left": 30,
+      "command_right": 0,
+      "start_s": 48.154737,
+      "stby_high_ms": 499.3003,
+      "direction_inputs": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "PWMA": {
+        "frequency_hz": 20000.0,
+        "duty_percent": 11.718
+      },
+      "PWMB": {
+        "constant": 1
+      },
+      "ending": "TIMEOUT"
+    },
+    {
+      "index": 4,
+      "command_left": 30,
+      "command_right": 0,
+      "start_s": 66.639002,
+      "stby_high_ms": 499.046,
+      "direction_inputs": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "PWMA": {
+        "frequency_hz": 20000.0,
+        "duty_percent": 11.718
+      },
+      "PWMB": {
+        "constant": 1
+      },
+      "ending": "TIMEOUT"
+    },
+    {
+      "index": 5,
+      "command_left": 50,
+      "command_right": 50,
+      "start_s": 97.873608,
+      "stby_high_ms": 499.44,
+      "direction_inputs": [
+        1,
+        0,
+        1,
+        0
+      ],
+      "PWMA": {
+        "frequency_hz": 20000.0,
+        "duty_percent": 19.532
+      },
+      "PWMB": {
+        "frequency_hz": 20000.0,
+        "duty_percent": 19.532
+      },
+      "ending": "TIMEOUT"
+    },
+    {
+      "index": 6,
+      "command_left": 100,
+      "command_right": 60,
+      "start_s": 101.668616,
+      "stby_high_ms": 499.4287,
+      "direction_inputs": [
+        1,
+        0,
+        1,
+        0
+      ],
+      "PWMA": {
+        "frequency_hz": 20000.0,
+        "duty_percent": 39.062
+      },
+      "PWMB": {
+        "frequency_hz": 20000.0,
+        "duty_percent": 23.438
+      },
+      "ending": "TIMEOUT"
+    },
+    {
+      "index": 7,
+      "command_left": -50,
+      "command_right": 50,
+      "start_s": 106.90103,
+      "stby_high_ms": 499.0148,
+      "direction_inputs": [
+        0,
+        1,
+        1,
+        0
+      ],
+      "PWMA": {
+        "frequency_hz": 20000.0,
+        "duty_percent": 19.532
+      },
+      "PWMB": {
+        "frequency_hz": 20000.0,
+        "duty_percent": 19.532
+      },
+      "ending": "TIMEOUT"
+    },
+    {
+      "index": 8,
+      "command_left": 0,
+      "command_right": -50,
+      "start_s": 111.446222,
+      "stby_high_ms": 498.8223,
+      "direction_inputs": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "PWMA": {
+        "constant": 1
+      },
+      "PWMB": {
+        "frequency_hz": 20000.0,
+        "duty_percent": 19.532
+      },
+      "ending": "TIMEOUT"
+    },
+    {
+      "index": 9,
+      "command_left": -50,
+      "command_right": -50,
+      "start_s": 115.661397,
+      "stby_high_ms": 499.6501,
+      "direction_inputs": [
+        0,
+        1,
+        0,
+        1
+      ],
+      "PWMA": {
+        "frequency_hz": 20000.0,
+        "duty_percent": 19.532
+      },
+      "PWMB": {
+        "frequency_hz": 20000.0,
+        "duty_percent": 19.532
+      },
+      "ending": "TIMEOUT"
+    },
+    {
+      "index": 10,
+      "command_left": 50,
+      "command_right": 50,
+      "start_s": 119.279098,
+      "stby_high_ms": 0.9666,
+      "direction_inputs": [
+        1,
+        0,
+        1,
+        0
+      ],
+      "PWMA": {
+        "frequency_hz": 20000.0,
+        "duty_percent": 19.532
+      },
+      "PWMB": {
+        "frequency_hz": 20000.0,
+        "duty_percent": 19.532
+      },
+      "ending": "STOP"
+    },
+    {
+      "index": 11,
+      "command_left": 50,
+      "command_right": 50,
+      "start_s": 164.235399,
+      "stby_high_ms": 30.2169,
+      "direction_inputs": [
+        1,
+        0,
+        1,
+        0
+      ],
+      "PWMA": {
+        "frequency_hz": 20000.0,
+        "duty_percent": 19.532
+      },
+      "PWMB": {
+        "frequency_hz": 20000.0,
+        "duty_percent": 19.532
+      },
+      "ending": "DISARM"
+    }
+  ],
+  "assertions_passed": true
+}

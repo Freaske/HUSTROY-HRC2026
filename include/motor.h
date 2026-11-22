@@ -10,6 +10,8 @@ void motorInit();
 // Đặt tốc độ trái/phải. Signed 8-bit duty command, clamped to +/-MAX_SPEED.
 // NOT an RPM target. A zero-speed wheel coasts.
 void setMotorSpeeds(int leftSpeed, int rightSpeed);
+void motorRunRightLineTest(); // Fixed duty, right wheel only.
+void motorForward(int speed);  // Magnitude of speed, both wheels forward.
 // Cả hai bánh chạy tiến với độ lớn |speed|.
 void motorForward(int speed);
 // Dừng ngay cả hai motor (thả trôi, không phanh).

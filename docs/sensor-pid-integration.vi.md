@@ -192,8 +192,9 @@ P = Kp * error
 integral += error * dtSeconds
 D = Kd * (error - previousError) / dtSeconds
 correction = P + Ki * integral + D
-left = BASE_SPEED + correction
-right = BASE_SPEED - correction
+center = min(SPD, MAX_SPEED - abs(correction))
+left = center + correction
+right = center - correction
 ```
 
 Error+0.5, Kp20 → correction+10. Base50 → trái60, phải40, xe có xu hướng quay
@@ -206,10 +207,10 @@ vòngCPU. Ví dụ D: error tăng0.5 trong0.1s → tốc độ đổi5 đơn v�
 D=0 để tránh cú giật từ giá trị trước chưa có. Dễ nhiễu thì phải tune D thận
 trọng; gains20/0/0 chỉ là điểm xuất phát của đồng đội.
 
-Tích phân bị chặn ở±2 error·s mặc định; không lưu thêm khi đẩy đầu ra sâu hơn
-vào bão hòa. Correction còn bị giới hạn bởi50 và khoảng trống hai bánh; tại
-base50/max150, giới hạn50 giữ bánh không đảo chiều trong LINE_FOLLOW.
-Manual MOTOR_TEST vẫn cho số âm. Ki/Kd trong bản gốc không có dt nên không
+Tích phân bị chặn ở ±2 error·s mặc định. PID giới hạn độ lớn correction theo
+mức 50 mặc định, PWM nền và nửa giới hạn PWM. Khi gần trần, bộ trộn hạ PWM
+chung để giữ chênh lệch giữa hai bánh. Ví dụ `SPD=150` và correction=20 cho
+trái 150, phải 110. Chỉ `MOTOR_TEST` cho số âm. Ki/Kd trong bản gốc không có dt nên không
 thể chuyển gains khác0 sang bản mới mà coi như đã tune.
 
 ## Bài 4 — Dòng dữ liệu thật trong mã

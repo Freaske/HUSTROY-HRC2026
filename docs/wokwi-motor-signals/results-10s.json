@@ -1,0 +1,78 @@
+{
+  "kind": "Wokwi ESP32 GPIO capture; NO TB6612 or DC motor physics",
+  "firmware_id": "motor-bench-led2-v2-10s",
+  "timeout_ms": 10000,
+  "raw_vcd": "/tmp/hustroy-motor-demo-10s.vcd",
+  "windows": [
+    {
+      "index": 1,
+      "command_left": 50,
+      "command_right": 0,
+      "ending": "TIMEOUT",
+      "start_s": 19.005636,
+      "stby_high_ms": 9999.4308,
+      "direction_inputs": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "PWMA": {
+        "frequency_hz": 20000.0,
+        "duty_percent": 19.532
+      },
+      "PWMB": {
+        "constant": 1
+      }
+    },
+    {
+      "index": 2,
+      "command_left": 100,
+      "command_right": 60,
+      "ending": "STOP",
+      "start_s": 73.710256,
+      "stby_high_ms": 26.3335,
+      "direction_inputs": [
+        1,
+        0,
+        1,
+        0
+      ],
+      "PWMA": {
+        "frequency_hz": 20000.0,
+        "duty_percent": 39.062
+      },
+      "PWMB": {
+        "frequency_hz": 20000.0,
+        "duty_percent": 23.436
+      }
+    },
+    {
+      "index": 3,
+      "command_left": 0,
+      "command_right": -50,
+      "ending": "DISARM",
+      "start_s": 73.838483,
+      "stby_high_ms": 1.1314,
+      "direction_inputs": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "PWMA": {
+        "constant": 1
+      },
+      "PWMB": {
+        "frequency_hz": 20000.0,
+        "duty_percent": 19.532
+      }
+    }
+  ],
+  "assertions_passed": true,
+  "LED": {
+    "on_ms_median": 99.999,
+    "short_off_ms_median": 100.004,
+    "long_off_ms_median": 700.01
+  }
+}

@@ -7,10 +7,15 @@
 // Phần diễn giải không gọi phần cứng nên kiểm thử được trên máy tính.
 // =============================================================================
 #include <Arduino.h>
+#include <algorithm>
 #include "sensors.h"
 #include "hardware_config.h"
 
-namespace { bool ready = false; }
+namespace {
+constexpr int ANALOG_AMBIGUITY_MARGIN = 8; // ADC counts above or below the calibrated threshold.
+constexpr int ANALOG_DOMINANT_PEAK_MIN_MARGIN = 24;
+bool ready = false;
+}
 
 // Phân tích 5 bit "mắt nào đang thấy line": tính vị trí trung bình (-2..+2),
 // hướng lệch (LEFT/RIGHT/FORWARD) và phát hiện mất line, ngã tư, hoặc nhiều
@@ -70,6 +75,35 @@ SensorFrame interpretSensorRaw(const std::array<int, SENSOR_COUNT>& raw,
         active[i] = invert ? !high : high;
     }
     frame = analyzeSensorPattern(active);
+    if (mode == SensorInputMode::ANALOG_AO && !frame.valid) {
+        // A weak, separate patch can flicker across its threshold. Recover only
+        // if a single contiguous line remains clearly above the noise margin.
+        std::array<bool, SENSOR_COUNT> confident{};
+        std::array<int, SENSOR_COUNT> signedDistance{};
+        int peakMargin = raw[0] - thresholds[0];
+        if (invert) peakMargin = -peakMargin;
+        for (std::size_t i = 0; i < SENSOR_COUNT; ++i) {
+            const int distance = raw[i] - thresholds[i];
+            signedDistance[i] = invert ? -distance : distance;
+            peakMargin = std::max(peakMargin, signedDistance[i]);
+            confident[i] = signedDistance[i] >= ANALOG_AMBIGUITY_MARGIN;
+        }
+        const auto candidate = analyzeSensorPattern(confident);
+        if (candidate.valid && candidate.state == LineState::LINE_DETECTED) {
+            frame = candidate;
+        } else if (peakMargin >= ANALOG_DOMINANT_PEAK_MIN_MARGIN) {
+            // Reject motor-load baseline shift when one contiguous peak dominates.
+            const int cutoff = std::max(ANALOG_AMBIGUITY_MARGIN, peakMargin / 2);
+            std::array<bool, SENSOR_COUNT> dominant{};
+            for (std::size_t i = 0; i < SENSOR_COUNT; ++i) {
+                dominant[i] = signedDistance[i] >= cutoff;
+            }
+            const auto dominantCandidate = analyzeSensorPattern(dominant);
+            if (dominantCandidate.valid && dominantCandidate.state == LineState::LINE_DETECTED) {
+                frame = dominantCandidate;
+            }
+        }
+    }
     frame.raw = raw;
     frame.rawAvailable = true;
     if (!calibrationConfirmed) {

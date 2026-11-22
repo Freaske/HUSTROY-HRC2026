@@ -24,6 +24,7 @@ class PidController {
 public:
     // Tạo bộ PID với hệ số/giới hạn cho trước.
     explicit PidController(PidSettings settings) : settings_(settings) {}
+    void configure(PidSettings settings);
     // Xóa tích phân và sai số trước.
     void reset();
     // Tính một bước PID từ sai số và dt (giây).

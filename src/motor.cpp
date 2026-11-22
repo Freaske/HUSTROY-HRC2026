@@ -122,12 +122,12 @@ bool motorIsReady() {
     return ready;
 }
 
+namespace {
+void driveMotors(int leftSpeed, int rightSpeed) {
 // Đặt tốc độ bánh trái/phải (duty có dấu). Tự áp dụng giới hạn MAX_SPEED,
 // cờ đảo chiều và quy ước trái/phải = kênh A/B. Cả hai bằng 0 thì dừng hẳn.
 void setMotorSpeeds(int leftSpeed, int rightSpeed) {
     if (!ready) return;
-    leftSpeed = clampSpeed(leftSpeed);
-    rightSpeed = clampSpeed(rightSpeed);
     if (leftSpeed == 0 && rightSpeed == 0) {
         motorStop();
         return;
@@ -146,6 +146,15 @@ void setMotorSpeeds(int leftSpeed, int rightSpeed) {
         return;
     }
     digitalWrite(MOTOR_STBY_PIN, HIGH);
+}
+} // namespace
+
+void setMotorSpeeds(int leftSpeed, int rightSpeed) {
+    driveMotors(clampSpeed(leftSpeed), clampSpeed(rightSpeed));
+}
+
+void motorRunRightLineTest() {
+    driveMotors(0, RIGHT_LINE_TEST_PWM);
 }
 
 // Cho cả hai bánh chạy tiến cùng một tốc độ (lấy giá trị tuyệt đối của speed).

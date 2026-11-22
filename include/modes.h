@@ -6,6 +6,7 @@
 #pragma once
 #include "sensors.h"
 
+enum class RobotMode { MOTOR_TEST, SENSOR_TEST, LINE_FOLLOW, RIGHT_LINE };
 enum class RobotMode { MOTOR_TEST, SENSOR_TEST, LINE_FOLLOW };
 // Toàn bộ trạng thái hiện tại của robot (chế độ, ARM, lệnh motor, cảm biến...).
 struct RobotStatus {
@@ -25,6 +26,10 @@ struct RobotStatus {
 void modesInit(unsigned long now);
 // Gọi liên tục trong loop(): đọc cảm biến, chạy PID, xử lý Serial/nút, timeout.
 void modesUpdate(unsigned long now);
+void modesSelect(RobotMode mode, unsigned long now); // Always stops; never arms.
+bool modesRun(unsigned long now); // Start a line-controlled trial after ARM.
+bool modesArm(); // Stops first; no motion.
+void modesDisarm(const char* reason); // Stops and revokes operator authorization.
 // Chuyển chế độ. Always stops; never arms.
 void modesSelect(RobotMode mode, unsigned long now);
 // Bắt đầu dò line. LINE_FOLLOW start request; requires prior ARM.

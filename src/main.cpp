@@ -11,9 +11,10 @@
 #include "motor.h"
 #include "sensors.h"
 #include "modes.h"
+#include "test_link.h"
 
 namespace {
-unsigned long lastLedAt = 0;
+unsigned long ledStartedAt = 0;
 bool ledOn = false;
 }
 
@@ -21,11 +22,15 @@ bool ledOn = false;
 // chế độ và LED. Sau hàm này robot luôn ở trạng thái STOPPED + DISARMED.
 void setup() {
     Serial.begin(SERIAL_BAUD);
+    Serial.printf("FW=%s | LED GPIO%u: double blink\n", FIRMWARE_ID,
+                  static_cast<unsigned int>(STATUS_LED_PIN));
     motorInit();
     sensorsInit();
     modesInit(millis());
+    testLinkInit();
     pinMode(STATUS_LED_PIN, OUTPUT);
     digitalWrite(STATUS_LED_PIN, LOW);
+    ledStartedAt = millis();
 }
 
 // Lặp vô hạn: cập nhật bộ điều khiển chế độ và nháy LED mỗi
@@ -33,9 +38,12 @@ void setup() {
 void loop() {
     const unsigned long now = millis();
     modesUpdate(now);
-    if (now - lastLedAt >= STATUS_LED_INTERVAL_MS) {
-        lastLedAt = now;
-        ledOn = !ledOn;
+    testLinkUpdate(millis());
+    const unsigned long phase = (now - ledStartedAt) % STATUS_LED_CYCLE_MS;
+    const bool nextLedOn = phase < STATUS_LED_PULSE_MS ||
+                          (phase >= 2 * STATUS_LED_PULSE_MS && phase < 3 * STATUS_LED_PULSE_MS);
+    if (nextLedOn != ledOn) {
+        ledOn = nextLedOn;
         digitalWrite(STATUS_LED_PIN, ledOn ? HIGH : LOW);
     }
 }

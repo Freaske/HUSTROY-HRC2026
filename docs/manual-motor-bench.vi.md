@@ -1,5 +1,33 @@
 # Bản thử motor thủ công đang bật
 
+Timeout manual hiện là **10 giây** theo yêu cầu mới. Đã chạy demo Wokwi và
+đo GPIO/PWM; xem [kết quả mô phỏng](wokwi-motor-signals/README.md).
+Các số liệu build/timeout500ms ở phần ghi nhận lịch sử không phải bản mới.
+
+## Nhận diện bản LED mới
+
+Bản hiện tại `motor-bench-led2-v2-10s` phát mẫu trên GPIO2: sáng100ms, tắt100ms,
+sáng100ms, tắt700ms rồi lặp. Không dùng delay; timeout motor và xử lý Serial
+vẫn chạy. GPIO không đổi sang chân khác: chưa có bằng chứng LED tích hợp
+board thật nối ở đâu. LED nguồn sáng liên tục không phải LED lập trình.
+
+Sau nạp/reset, banner và STATUS có `FW=motor-bench-led2-v2-10s`. STATUS thêm
+PWM, bảng chân và L_REQ/R_REQ. Đây là cấu hình/lệnh phần mềm, không phải
+phép đo điện hoặc xác nhận bánh quay; timeout làm L_REQ/R_REQ về0.
+
+Nếu có `TEST: left=50 right=0` rồi TIMEOUT mà bánh không quay, lệnh đã được
+chấp nhận và xử lý, nhưng chưa biết VM/VCC thực, thông mạch, điện áp đầu ra,
+ma sát hay tình trạng motor. PWM50 chỉ khoảng20% duty. Kiểm tra nguồn/dây/
+cơ khí trước khi tăng; không suy ra lắp đúng chỉ từ READY hoặc LED nháy.
+
+Không có đồng hồ thì cần ảnh rõ chân TB6612, mối hàn, dây nguồn và đường
+GND để kiểm tra bằng mắt. Không dùng chế độ sửa code/đổi GPIO ngẫu nhiên
+để thay phép đo nguồn. Ngắt mọi nguồn trước khi chỉnh dây.
+
+Ghi nhận lịch sử bản LED v1: `pio run -e esp32dev` SUCCESS (8.92 giây), RAM
+22,512 byte/flash 314,643 byte; toàn bộ 26 kịch bản host và 14 cấu hình sai
+đạt. Chưa upload, chưa quan sát LED hoặc đo GPIO/motor thật của bản này.
+
 Người dùng yêu cầu bật thử sau khi báo đã đấu dây, dùng AIN1=D13/AIN2=D14 và
 hộp 4 pin AA ghi 1.5V/viên. Cấu hình này được áp dụng theo yêu cầu đó; không
 có nghĩa định mức điện, cực nguồn, GND hay dòng kẹt đã được đo/xác minh.
@@ -16,7 +44,8 @@ Kênh A tạm được coi là trái, B phải. Hai cờ INVERT vẫn false. Ch�
 RUN line-follow bị chặn. Không thêm tự chạy lúc cấp điện.
 
 Độ phân giải PWM 8bit (0..255), lệnh giới hạn ±150; đây không phải RPM hay
-giới hạn dòng điện. Timeout manual 500ms; timeout, lỗi lệnh và đổi mode đều
+giới hạn dòng điện. Theo yêu cầu mới, timeout manual **10000ms (10 giây)**;
+LINE_FOLLOW vẫn có giới hạn riêng 5 giây. Timeout, lỗi lệnh và đổi mode đều
 dừng + DISARM. ARM không quay bánh; STOP dừng/coast nhưng giữ ARM, DISARM
 dừng và hủy quyền. Bánh có thể còn trôi sau khi bỏ công suất.
 
@@ -40,13 +69,14 @@ dừng và hủy quyền. Bánh có thể còn trôi sau khi bỏ công suất.
    nguồn VM bằng công tắc/rút nguồn vật lý. Thông số motor/dòng kẹt còn chưa
    biết: không coi PWM thấp là bảo vệ dòng; cần đối chiếu định mức phần cứng.
 5. Khi phần điện phù hợp để cấp VM, gửi từng lệnh, không dán cả chuỗi:
-   MODE MOTOR_TEST → ARM → LEFT 30. Chờ timeout khoảng 10 s rồi STATUS;
+   MODE MOTOR_TEST → ARM → LEFT 30. Chờ timeout khoảng 10 giây rồi STATUS;
    phải RUN=0/ARMED=0. Ghi bánh thực tế nhận lệnh.
 6. ARM lại → RIGHT 30; chờ dừng. Sau khi từng bánh đúng mới ARM → BOTH 30.
    Nếu 30 chưa quay, dừng kiểm tra nguồn/dây/ma sát trước khi thử 50; không
    tăng liên tục hoặc giữ trục để ép motor.
 7. Chờ trục đứng yên trước khi thử số âm: ARM → LEFT -30, rồi thử riêng
    RIGHT -30. ARM lại mỗi xung. STOP/DISARM trước khi đổi hướng/cấu hình.
+   Có thể STOP sớm; không cần chờ đủ 10 giây, nhất là khi motor không quay.
 8. Thử STOP, DISARM và timeout. Sau DISARM hoặc timeout, LEFT 30 phải bị
    chặn đến khi ARM lại. ! dừng và DISARM khi ký tự tới ESP32, Enter để xóa dòng.
 
