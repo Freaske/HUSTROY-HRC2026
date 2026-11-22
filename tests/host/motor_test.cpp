@@ -218,8 +218,9 @@ int main(int argc, char** argv) {
             expectStopped();
             send("BOTH 0\n");
             expectStopped();
+            const std::string overSpeed = std::to_string(MAX_SPEED + 1);
             const std::string invalid[] = {
-                "LEFT\n", "BOTH 151\n", "BOTH -151\n", "RIGHT 3.5\n",
+                "LEFT\n", "BOTH " + overSpeed + "\n", "BOTH -" + overSpeed + "\n", "RIGHT 3.5\n",
                 "BOTH 999999999999999999999999999999\n", "BOTH 30 junk\n",
                 "left 30\n", "REVERSE 50\n", "BOTH 0x20\n", "BOTH +\n",
                 "STOP extra\n", std::string(90, 'A') + "\n",
@@ -235,19 +236,21 @@ int main(int argc, char** argv) {
             nowMs += MOTOR_TEST_TIMEOUT_MS;
             loop();
             expectStopped();  // Unsigned millis rollover.
+            const unsigned long beforeDeadline = MOTOR_TEST_TIMEOUT_MS * 4 / 5;
+            const unsigned long remaining = MOTOR_TEST_TIMEOUT_MS - beforeDeadline;
             sendArmed("BOTH 30\n");
-            nowMs += 400;
+            nowMs += beforeDeadline;
             send("STATUS\nHELP\n");
-            nowMs += 100;
+            nowMs += remaining;
             loop();
             expectStopped();  // HELP/STATUS must not extend the deadline.
             sendArmed("BOTH 30\n");
-            nowMs += 400;
+            nowMs += beforeDeadline;
             sendArmed("RIGHT 40\n");
-            nowMs += 100;
+            nowMs += remaining;
             loop();
             expectSpeeds(0, 40);  // A new valid motion starts a new pulse.
-            nowMs += 400;
+            nowMs += beforeDeadline;
             loop();
             expectStopped();
             assert(Serial.output.find("TIMEOUT") != std::string::npos);

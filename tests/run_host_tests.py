@@ -40,6 +40,7 @@ def build(folder, changes, expect_failure=False,
                "-I", str(ROOT / "tests/host"), "-I", str(ROOT / "include"),
                str(ROOT / "src/motor.cpp"), str(ROOT / "src/main.cpp"),
                str(ROOT / "src/sensors.cpp"), str(ROOT / "src/pid.cpp"), str(ROOT / "src/modes.cpp"),
+               str(ROOT / "src/tuning.cpp"), str(ROOT / "src/test_link.cpp"),
                str(ROOT / "tests/host/motor_test.cpp"), "-o", str(folder / "test")]
     result = subprocess.run(command, text=True, capture_output=True)
     if expect_failure:
@@ -99,7 +100,14 @@ def main():
         ]:
             build(folder, {**sensor_config, **changes})
             subprocess.run([str(folder / "test"), "system-follow"], check=True)
+            if name == "analog":
+                subprocess.run([str(folder / "test"), "system-tuning"], check=True)
             print(f"PASS: integrated {name}", flush=True)
+        build(folder, {**sensor_config, "INVERT_LINE_SENSOR": "false",
+                       "SENSOR_CALIBRATION_CONFIRMED": "false",
+                       "SENSOR_DISCONNECT_BIAS_CONFIRMED": "false",
+                       "SENSOR_ANALOG_THRESHOLDS": "{{265,291,284,325,550}}"})
+        subprocess.run([str(folder / "test"), "system-right-line"], check=True)
         for name, changes in [
             ("calibration", {"SENSOR_CALIBRATION_CONFIRMED": "false"}),
             ("disconnect-bias", {"SENSOR_DISCONNECT_BIAS_CONFIRMED": "false"}),

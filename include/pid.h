@@ -17,6 +17,7 @@ struct PidResult {
 class PidController {
 public:
     explicit PidController(PidSettings settings) : settings_(settings) {}
+    void configure(PidSettings settings);
     void reset();
     PidResult update(float error, float dtSeconds);
     float integral() const { return integral_; }

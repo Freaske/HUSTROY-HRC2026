@@ -2,6 +2,11 @@
 #include <algorithm>
 #include <cmath>
 
+void PidController::configure(PidSettings settings) {
+    if (settings.kp != settings_.kp || settings.ki != settings_.ki || settings.kd != settings_.kd) reset();
+    settings_ = settings;
+}
+
 void PidController::reset() {
     integral_ = 0;
     previousError_ = 0;
@@ -43,16 +48,19 @@ PidResult PidController::update(float error, float dtSeconds) {
 }
 
 float forwardCorrectionLimit(int base, int maximum, float requested) {
-    if (base <= 0 || base >= maximum || !std::isfinite(requested) || requested <= 0) return 0;
-    return std::min(requested, static_cast<float>(std::min(base, maximum - base)));
+    if (base <= 0 || base > maximum || !std::isfinite(requested) || requested <= 0) return 0;
+    return std::min({requested, static_cast<float>(base), maximum / 2.0f});
 }
 
 WheelSpeeds mixForwardSpeeds(int base, float correction, int maximum) {
     WheelSpeeds speeds;
     if (maximum <= 0 || base < 0 || base > maximum || !std::isfinite(correction)) return speeds;
-    // LINE_FOLLOW is forward-only. Manual MOTOR_TEST still permits reverse.
-    const float left = std::clamp(static_cast<float>(base) + correction, 0.0f, static_cast<float>(maximum));
-    const float right = std::clamp(static_cast<float>(base) - correction, 0.0f, static_cast<float>(maximum));
+    const float ceiling = static_cast<float>(maximum);
+    const float offset = std::clamp(correction, -ceiling, ceiling);
+    // Reduce the common PWM at the ceiling to preserve the steering difference.
+    const float center = std::min(static_cast<float>(base), ceiling - std::abs(offset));
+    const float left = std::max(0.0f, center + offset);
+    const float right = std::max(0.0f, center - offset);
     speeds.left = static_cast<int>(std::lround(left));
     speeds.right = static_cast<int>(std::lround(right));
     speeds.valid = true;

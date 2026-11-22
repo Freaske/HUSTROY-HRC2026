@@ -3,12 +3,18 @@
 #include "sensors.h"
 
 
+constexpr char FIRMWARE_ID[] = "line-follow-pwm170-v2";
 constexpr uint8_t STATUS_LED_PIN = 2;
-constexpr unsigned long STATUS_LED_INTERVAL_MS = 500;
+// GPIO2: ON 100ms, OFF 100ms, ON 100ms, OFF 700ms. No delay().
+constexpr unsigned long STATUS_LED_PULSE_MS = 100;
+constexpr unsigned long STATUS_LED_CYCLE_MS = 1000;
+static_assert(STATUS_LED_PULSE_MS > 0 &&
+              STATUS_LED_CYCLE_MS > 3 * STATUS_LED_PULSE_MS,
+              "LED cycle must contain two pulses followed by a pause");
 
 // PWM 8 bit: 0..255. These team starting values are NOT calibrated RPM.
-constexpr int MAX_SPEED = 150;
-constexpr int BASE_SPEED = 50;
+constexpr int MAX_SPEED = 170;
+constexpr int BASE_SPEED = 170;
 
 // User-requested manual motor bench profile; startup still STOPPED/DISARMED.
 // Pins follow the wiring discussion (AIN1=D13, AIN2=D14). Electrical ratings
@@ -32,50 +38,59 @@ constexpr bool INVERT_RIGHT_MOTOR = false;
 constexpr uint8_t MOTOR_PWM_BITS = 8;
 constexpr int MOTOR_PWM_MAX = (1 << MOTOR_PWM_BITS) - 1;
 constexpr uint32_t MOTOR_PWM_FREQUENCY_HZ = 20000;
-constexpr unsigned long MOTOR_TEST_TIMEOUT_MS = 500;
+constexpr unsigned long MOTOR_TEST_TIMEOUT_MS = 10000; // User-requested manual pulse: 10 seconds.
+constexpr int RIGHT_LINE_TEST_PWM = 170;
+constexpr unsigned long RIGHT_LINE_TEST_MAX_RUN_MS = 10000;
 constexpr uint32_t SERIAL_BAUD = 115200;
 
 static_assert(MOTOR_PWM_BITS == 8, "Motor interface requires 8-bit PWM");
 static_assert(MAX_SPEED > 0 && MAX_SPEED <= MOTOR_PWM_MAX, "MAX_SPEED must be 1..255");
 static_assert(BASE_SPEED >= 0 && BASE_SPEED <= MAX_SPEED, "BASE_SPEED exceeds limit");
-static_assert(MOTOR_TEST_TIMEOUT_MS > 0 && MOTOR_TEST_TIMEOUT_MS <= 2000,
-              "Bench test timeout must be 1..2000 ms");
+static_assert(MOTOR_TEST_TIMEOUT_MS > 0 && MOTOR_TEST_TIMEOUT_MS <= 10000,
+              "Bench test timeout must be 1..10000 ms");
+static_assert(RIGHT_LINE_TEST_PWM > 0 && RIGHT_LINE_TEST_PWM <= MOTOR_PWM_MAX,
+              "Right line test duty must be 1..255");
+static_assert(RIGHT_LINE_TEST_MAX_RUN_MS > 0 && RIGHT_LINE_TEST_MAX_RUN_MS <= 10000,
+              "Right line test timeout must be 1..10000 ms");
 static_assert(MOTOR_PWM_FREQUENCY_HZ > 0 && MOTOR_PWM_FREQUENCY_HZ <= 100000,
               "TB6612 PWM must be at most 100 kHz");
 
-// Sensors: no wiring or AO/DO choice has been confirmed. No GPIO is touched
-// until enabled with a valid mapping. Order is LEFT -> RIGHT facing forward.
-constexpr bool SENSOR_HARDWARE_ENABLED = false;
-constexpr SensorInputMode SENSOR_INPUT_MODE = SensorInputMode::UNCONFIGURED;
-constexpr std::array<int, SENSOR_COUNT> SENSOR_PINS = {{-1, -1, -1, -1, -1}};
-constexpr std::array<int, SENSOR_COUNT> SENSOR_ANALOG_THRESHOLDS = {{2048, 2048, 2048, 2048, 2048}};
+// AO inputs in physical left-to-right order. LINE_FOLLOW needs calibration and bias checks.
+constexpr bool SENSOR_HARDWARE_ENABLED = true;
+constexpr SensorInputMode SENSOR_INPUT_MODE = SensorInputMode::ANALOG_AO;
+constexpr std::array<int, SENSOR_COUNT> SENSOR_PINS = {{32, 33, 34, 35, 36}};
+// Provisional thresholds from a stationary sweep of the team's black line.
+constexpr std::array<int, SENSOR_COUNT> SENSOR_ANALOG_THRESHOLDS = {{265, 291, 268, 325, 550}};
 constexpr uint8_t SENSOR_ADC_BITS = 12;
 constexpr int SENSOR_ADC_MAX = (1 << SENSOR_ADC_BITS) - 1;
 // False: raw HIGH / above-threshold is provisionally active. True reverses it.
 // Raw readings are available for calibration while this confirmation is false.
 constexpr bool INVERT_LINE_SENSOR = false;
-constexpr bool SENSOR_CALIBRATION_CONFIRMED = false;
+constexpr bool SENSOR_CALIBRATION_CONFIRMED = true;
 // Confirm input bias/continuity and unplug tests before authorizing RUN.
 // GPIO34..39 have no internal pull resistors; floating inputs are unsafe.
-constexpr bool SENSOR_DISCONNECT_BIAS_CONFIRMED = false;
+constexpr bool SENSOR_DISCONNECT_BIAS_CONFIRMED = true;
 constexpr bool INVERT_PID_ERROR = false;
 
-// Teammate's starting gains, NOT tuned. Ki/Kd now use seconds.
-constexpr float PID_KP = 20.0f;
+// Starting PD gains tuned for PWM 170 (dt = 20 ms). Ki/Kd use seconds.
+constexpr float PID_KP = 45.0f;
 constexpr float PID_KI = 0.0f;
-constexpr float PID_KD = 0.0f;
+constexpr float PID_KD = 1.5f;
 constexpr float PID_INTEGRAL_LIMIT = 2.0f; // error * seconds
-constexpr float PID_CORRECTION_LIMIT = 50.0f; // duty units, further limited by wheel headroom
+constexpr float PID_CORRECTION_LIMIT = 85.0f; // duty units, further limited by wheel headroom
 constexpr unsigned long CONTROL_PERIOD_MS = 20;
 constexpr unsigned long CONTROL_MAX_GAP_MS = 100;
 constexpr unsigned long DEBUG_LOG_INTERVAL_MS = 250;
 constexpr unsigned int LINE_START_VALID_SAMPLES = 3;
-constexpr unsigned long LINE_FOLLOW_MAX_RUN_MS = 5000; // finite bench trial per RUN
+constexpr unsigned long LINE_FOLLOW_MAX_RUN_MS = 15000; // finite trial per RUN
+constexpr unsigned long LINE_LOST_GRACE_MS = 1500;
+constexpr unsigned long LINE_INVALID_GRACE_MS = 160;
+constexpr unsigned long LINE_INTERSECTION_STOP_MS = 200;
 
 constexpr bool MODE_BUTTON_ENABLED = false;
 constexpr int MODE_BUTTON_PIN = -1; // proposal: GPIO27, normally-open switch to GND
 constexpr unsigned long MODE_BUTTON_DEBOUNCE_MS = 30;
-// Reservations only, never initialized here. HC-SR04P/Bluetooth not implemented.
+// Reservations only, never initialized here. The optional test radios use onboard hardware.
 constexpr int RESERVED_ULTRASONIC_TRIG_PIN = -1; // proposal: 25
 constexpr int RESERVED_ULTRASONIC_ECHO_PIN = -1; // proposal: 26; verify ECHO voltage
 
@@ -88,6 +103,12 @@ static_assert(DEBUG_LOG_INTERVAL_MS >= 100, "Do not flood the serial control loo
 static_assert(LINE_START_VALID_SAMPLES > 0, "Require valid frames before RUN");
 static_assert(LINE_FOLLOW_MAX_RUN_MS > 0 && LINE_FOLLOW_MAX_RUN_MS <= 30000,
               "Initial line trials must be finite: 1..30000 ms per RUN");
+static_assert(LINE_LOST_GRACE_MS > 0 && LINE_LOST_GRACE_MS <= 2000,
+              "Line-lost grace window must be 1..2000 ms");
+static_assert(LINE_INVALID_GRACE_MS > 0 && LINE_INVALID_GRACE_MS <= 1000,
+              "Invalid-pattern grace window must be 1..1000 ms");
+static_assert(LINE_INTERSECTION_STOP_MS > 0 && LINE_INTERSECTION_STOP_MS <= 1000,
+              "Intersection stop debounce must be 1..1000 ms");
 static_assert(PID_KP >= 0 && PID_KI >= 0 && PID_KD >= 0 &&
               PID_INTEGRAL_LIMIT > 0 && PID_CORRECTION_LIMIT > 0,
               "PID defaults must be finite positive limits and nonnegative gains");

@@ -102,10 +102,9 @@ bool motorIsReady() {
     return ready;
 }
 
-void setMotorSpeeds(int leftSpeed, int rightSpeed) {
+namespace {
+void driveMotors(int leftSpeed, int rightSpeed) {
     if (!ready) return;
-    leftSpeed = clampSpeed(leftSpeed);
-    rightSpeed = clampSpeed(rightSpeed);
     if (leftSpeed == 0 && rightSpeed == 0) {
         motorStop();
         return;
@@ -124,6 +123,15 @@ void setMotorSpeeds(int leftSpeed, int rightSpeed) {
         return;
     }
     digitalWrite(MOTOR_STBY_PIN, HIGH);
+}
+} // namespace
+
+void setMotorSpeeds(int leftSpeed, int rightSpeed) {
+    driveMotors(clampSpeed(leftSpeed), clampSpeed(rightSpeed));
+}
+
+void motorRunRightLineTest() {
+    driveMotors(0, RIGHT_LINE_TEST_PWM);
 }
 
 void motorForward(int speed) {

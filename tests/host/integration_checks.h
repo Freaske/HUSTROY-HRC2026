@@ -46,6 +46,20 @@ void runPureLogicChecks() {
     assert(!interpretSensorRaw(analog, SensorInputMode::ANALOG_AO, badThresholds, false, true).valid);
     auto boundary = thresholds;
     assert(interpretSensorRaw(boundary, SensorInputMode::ANALOG_AO, thresholds, false, true).allActive);
+    const std::array<int, 5> benchThresholds{{265, 291, 284, 325, 550}};
+    const std::array<int, 5> noisyLine{{268, 278, 351, 318, 359}};
+    frame = interpretSensorRaw(noisyLine, SensorInputMode::ANALOG_AO, benchThresholds, false, true);
+    assert(frame.valid && frame.activeCount == 1 && frame.active[2] && frame.raw == noisyLine);
+    const std::array<int, 5> shiftedLine{{282, 289, 332, 300, 327}};
+    frame = interpretSensorRaw(shiftedLine, SensorInputMode::ANALOG_AO, benchThresholds, false, true);
+    assert(frame.valid && frame.activeCount == 1 && frame.active[2] && frame.raw == shiftedLine);
+    auto ambiguous = noisyLine;
+    ambiguous[0] = 320;
+    assert(!interpretSensorRaw(ambiguous, SensorInputMode::ANALOG_AO, benchThresholds, false, true).valid);
+    auto invertedNoise = benchThresholds;
+    for (std::size_t i = 0; i < SENSOR_COUNT; ++i) invertedNoise[i] = 2 * benchThresholds[i] - noisyLine[i];
+    frame = interpretSensorRaw(invertedNoise, SensorInputMode::ANALOG_AO, benchThresholds, true, true);
+    assert(frame.valid && frame.activeCount == 1 && frame.active[2]);
 
     PidController pid({20, 0, 0, 2, 50});
     assert(pid.update(0.5f, 0.02f).output == 10);
@@ -74,9 +88,15 @@ void runPureLogicChecks() {
     PidController badPid({std::numeric_limits<float>::infinity(), 0, 0, 2, 50});
     assert(!badPid.update(1, 0.02f).valid);
     assert(forwardCorrectionLimit(50, 150, 100) == 50);
-    assert(forwardCorrectionLimit(140, 150, 100) == 10);
+    assert(forwardCorrectionLimit(140, 150, 100) == 75);
+    assert(forwardCorrectionLimit(150, 150, 50) == 50);
+    assert(forwardCorrectionLimit(151, 150, 50) == 0);
     const auto speeds = mixForwardSpeeds(50, 20, 150);
     assert(speeds.valid && speeds.left == 70 && speeds.right == 30);
+    const auto saturatedRight = mixForwardSpeeds(150, 20, 150);
+    const auto saturatedLeft = mixForwardSpeeds(150, -20, 150);
+    assert(saturatedRight.valid && saturatedRight.left == 150 && saturatedRight.right == 110);
+    assert(saturatedLeft.valid && saturatedLeft.left == 110 && saturatedLeft.right == 150);
     assert(mixForwardSpeeds(50, 1000, 150).left == 150);
     assert(mixForwardSpeeds(50, 1000, 150).right == 0);
     assert(!mixForwardSpeeds(50, std::numeric_limits<float>::quiet_NaN(), 150).valid);
@@ -86,7 +106,7 @@ void setPattern(const std::string& bits) {
     for (std::size_t i = 0; i < SENSOR_COUNT; ++i) {
         const bool high = INVERT_LINE_SENSOR ? bits[i] != '1' : bits[i] == '1';
         rawInputs[SENSOR_PINS[i]] = SENSOR_INPUT_MODE == SensorInputMode::ANALOG_AO ?
-                                   (high ? 3000 : 1000) : (high ? 1 : 0);
+                                   (high ? SENSOR_ADC_MAX : 0) : (high ? HIGH : LOW);
     }
 }
 void step(unsigned long milliseconds = CONTROL_PERIOD_MS) { nowMs += milliseconds; loop(); }
@@ -113,6 +133,69 @@ void startFollow() {
 
 void runSystemChecks(const std::string& scenario) {
     expectStopped();
+    if (scenario == "system-right-line") {
+        setPattern("00000");
+        send("MODE RIGHT_LINE\nARM\n"); warmup(); send("GO\n");
+        assert(!modesStatus().armed && !modesStatus().running);
+        expectStopped();
+        setPattern("00100"); warmup(); send("GO\n");
+        assert(!modesStatus().running); expectStopped();
+
+        const auto startRightLine = [] {
+            setPattern("00100"); send("ARM\n"); warmup(); send("GO\n");
+            assert(modesStatus().running);
+            expectStopped();
+            step(); expectSpeeds(0, RIGHT_LINE_TEST_PWM);
+        };
+        startRightLine();
+        const std::array<int, SENSOR_COUNT> shifted{{282, 289, 332, 300, 327}};
+        for (std::size_t i = 0; i < SENSOR_COUNT; ++i) rawInputs[SENSOR_PINS[i]] = shifted[i];
+        step(); expectSpeeds(0, RIGHT_LINE_TEST_PWM);
+        const std::array<int, SENSOR_COUNT> wideLine{{256, 272, 321, 501, 1841}};
+        for (std::size_t i = 0; i < SENSOR_COUNT; ++i) rawInputs[SENSOR_PINS[i]] = wideLine[i];
+        step(); expectSpeeds(0, RIGHT_LINE_TEST_PWM);
+        const std::array<int, SENSOR_COUNT> shiftedBackground{{277, 299, 304, 310, 330}};
+        for (std::size_t i = 0; i < SENSOR_COUNT; ++i) rawInputs[SENSOR_PINS[i]] = shiftedBackground[i];
+        step();
+        assert(!modesStatus().armed && !modesStatus().running);
+        assert(std::string(modesStatus().stopReason) == "RIGHT_LINE_LOST");
+        expectStopped();
+        setPattern("00100"); warmup(); expectStopped();
+
+        startRightLine();
+        for (unsigned long elapsed = CONTROL_PERIOD_MS; elapsed < RIGHT_LINE_TEST_MAX_RUN_MS;
+             elapsed += CONTROL_PERIOD_MS) {
+            if (elapsed == 1000) send("GO\n");
+            step();
+        }
+        assert(!modesStatus().armed && !modesStatus().running);
+        assert(std::string(modesStatus().stopReason) == "RUN_TIMEOUT");
+        expectStopped();
+        return;
+    }
+    if (scenario == "system-tuning") {
+        setPattern("00100");
+        send("KP=20\nKD=0\nSPD=150\nMODE LINE_FOLLOW\nARM\n"); warmup(); send("GO\n");
+        step(); expectSpeeds(150, 150);
+        const auto s150Right = mixForwardSpeeds(150, 20, MAX_SPEED);
+        setPattern("00010"); step(); expectSpeeds(s150Right.left, s150Right.right);
+        setPattern("01000"); step(); expectSpeeds(s150Right.right, s150Right.left);
+        setPattern("00010");
+        send("SPD=50\n");
+        step(); expectSpeeds(70, 30);
+        send("KP=30\r\nSPD=120\nGET\n");
+        assert(Serial.output.find("KP=30 KI=0 KD=0 SPD=120 MAX=" + std::to_string(MAX_SPEED)) != std::string::npos);
+        step(); expectSpeeds(150, 90);
+        send("SPD=" + std::to_string(MAX_SPEED + 1) + "\nKP=nan\nKD=-1\nSAVE\n");
+        assert(Serial.output.find("ERR SPD must") != std::string::npos);
+        assert(Serial.output.find("ERR STOP before SAVE") != std::string::npos);
+        step(); expectSpeeds(150, 90);
+        send("KP=0\nKD=1\nSPD=50\n");
+        step(); expectSpeeds(50, 50); // Gain changes reset derivative history.
+        setPattern("00100"); step(); expectSpeeds(0, 100);
+        send("STOP\n"); expectStopped();
+        return;
+    }
     if (scenario == "system-gates") {
         send("MODE LINE_FOLLOW\nARM\n"); warmup(); send("RUN\n");
         assert(!modesStatus().running);
@@ -148,11 +231,19 @@ void runSystemChecks(const std::string& scenario) {
         return;
     }
     startFollow();
+    const float corrLimit = forwardCorrectionLimit(BASE_SPEED, MAX_SPEED, PID_CORRECTION_LIMIT);
+    const float dtSeconds = static_cast<float>(CONTROL_PERIOD_MS) / 1000.0f;
+    PidController expectedPid({PID_KP, PID_KI, PID_KD, PID_INTEGRAL_LIMIT, corrLimit});
+    expectedPid.update(0.0f, dtSeconds);
     setPattern("00010"); step();
-    const auto expected = mixForwardSpeeds(BASE_SPEED, INVERT_PID_ERROR ? -PID_KP : PID_KP, MAX_SPEED);
+    auto expected = mixForwardSpeeds(BASE_SPEED, expectedPid.update(INVERT_PID_ERROR ? -1.0f : 1.0f, dtSeconds).output, MAX_SPEED);
+    expectSpeeds(expected.left, expected.right);
+    step();
+    expected = mixForwardSpeeds(BASE_SPEED, expectedPid.update(INVERT_PID_ERROR ? -1.0f : 1.0f, dtSeconds).output, MAX_SPEED);
     expectSpeeds(expected.left, expected.right);
     setPattern("01000"); step();
-    expectSpeeds(expected.right, expected.left);
+    expected = mixForwardSpeeds(BASE_SPEED, expectedPid.update(INVERT_PID_ERROR ? 1.0f : -1.0f, dtSeconds).output, MAX_SPEED);
+    expectSpeeds(expected.left, expected.right);
     send("MODE SENSOR_TEST\n"); expectStopped();
     send("LEFT 30\n"); expectStopped(); // Wrong-mode motor command rejected.
     assert(!modesStatus().running && modesStatus().mode == RobotMode::SENSOR_TEST);
@@ -160,16 +251,84 @@ void runSystemChecks(const std::string& scenario) {
     step(DEBUG_LOG_INTERVAL_MS - 1); assert(Serial.output.empty());
     step(1); assert(Serial.output.find("RAW=[") != std::string::npos);
 
+    const auto graceLimitFor = [](const std::string& bits) {
+        if (bits == "00000") return LINE_LOST_GRACE_MS;
+        if (bits == "11111" || bits == "10001") return LINE_INTERSECTION_STOP_MS;
+        return LINE_INVALID_GRACE_MS;
+    };
     const std::string stopPatterns[] = {"00000", "11111", "10001", "01010"};
     for (const auto& bits : stopPatterns) {
         startFollow();
+        Serial.output.clear();
         setPattern(bits); step();
+        const unsigned long limitMs = graceLimitFor(bits);
+        assert(modesStatus().running);
+        for (unsigned long elapsed = CONTROL_PERIOD_MS; elapsed < limitMs; elapsed += CONTROL_PERIOD_MS) {
+            step();
+            assert(modesStatus().running);
+        }
+        step();
         assert(!modesStatus().running);
         assert(!modesStatus().armed);
         expectStopped();
+        const auto start = Serial.output.find(std::string("LINE_STOP REASON=") + modesStatus().stopReason);
+        assert(start != std::string::npos);
+        const auto stopLog = Serial.output.substr(start, Serial.output.find('\n', start) - start);
+        assert(stopLog.find(" BITS=" + bits + " RAW_OK=1") != std::string::npos);
+        assert(stopLog.find(" PREV_L=" + std::to_string(BASE_SPEED) + " PREV_R=" +
+                            std::to_string(BASE_SPEED) + " RAW=[") != std::string::npos);
         setPattern("00100"); warmup();
         assert(!modesStatus().running); expectStopped(); // No automatic recovery.
     }
+
+    // Transient LINE_LOST after a hard turn should pivot in-place toward the lost line and recover.
+    startFollow();
+    setPattern("00001"); step();
+    setPattern("00000"); step();
+    assert(modesStatus().running);
+    expectSpeeds(INVERT_PID_ERROR ? -BASE_SPEED : BASE_SPEED,
+                 INVERT_PID_ERROR ? BASE_SPEED : -BASE_SPEED);
+    setPattern("00100"); step();
+    assert(modesStatus().running);
+    assert(modesStatus().error == 0.0f);
+    send("STOP\n"); expectStopped();
+
+    startFollow();
+    setPattern("10000"); step();
+    setPattern("00000"); step();
+    assert(modesStatus().running);
+    expectSpeeds(INVERT_PID_ERROR ? BASE_SPEED : -BASE_SPEED,
+                 INVERT_PID_ERROR ? -BASE_SPEED : BASE_SPEED);
+    setPattern("00100"); step();
+    assert(modesStatus().running);
+    assert(modesStatus().error == 0.0f);
+    send("STOP\n"); expectStopped();
+
+    // Transient LINE_LOST while centered should cross straight over a short gap and recover.
+    startFollow();
+    setPattern("00000"); step();
+    assert(modesStatus().running);
+    expectSpeeds(BASE_SPEED, BASE_SPEED);
+    setPattern("00100"); step();
+    assert(modesStatus().running);
+    expectSpeeds(BASE_SPEED, BASE_SPEED);
+    send("STOP\n"); expectStopped();
+
+    // Brief intersection and invalid split glitches should continue and recover when line returns.
+    startFollow();
+    setPattern("11111"); step();
+    assert(modesStatus().running);
+    expectSpeeds(BASE_SPEED, BASE_SPEED);
+    setPattern("00100"); step();
+    assert(modesStatus().running);
+    send("STOP\n"); expectStopped();
+
+    startFollow();
+    setPattern("01010"); step();
+    assert(modesStatus().running);
+    setPattern("00100"); step();
+    assert(modesStatus().running);
+    send("STOP\n"); expectStopped();
     startFollow();
     rawInputs[SENSOR_PINS[0]] = SENSOR_INPUT_MODE == SensorInputMode::ANALOG_AO ? 5000 : 2;
     step(); assert(!modesStatus().running); expectStopped();
@@ -227,9 +386,10 @@ void runArmingChecks() {
     expectStopped(); assert(!modesStatus().armed);
     send("RIGHT 30\n"); expectStopped();
 
+    const std::string overSpeed = std::to_string(MAX_SPEED + 1);
     const std::string invalid[] = {"ARM extra\n", "SET 30\n", "SET 30 20 extra\n",
-        "SET 151 20\n", "SET 20 -151\n", "SET abc 20\n", "SET 30 2.5\n",
-        "SET 30 999999999999999999999999\n", "BOTH 151\n", "STOP extra\n", "DISARM extra\n"};
+        "SET " + overSpeed + " 20\n", "SET 20 -" + overSpeed + "\n", "SET abc 20\n", "SET 30 2.5\n",
+        "SET 30 999999999999999999999999\n", "BOTH " + overSpeed + "\n", "STOP extra\n", "DISARM extra\n"};
     for (const auto& bad : invalid) {
         sendArmed("LEFT 30\n");
         send(bad); expectStopped(); assert(!modesStatus().armed);
