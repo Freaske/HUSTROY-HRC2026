@@ -1,13 +1,25 @@
+// =============================================================================
+// pid.cpp — Bộ điều khiển PID và hàm trộn tốc độ 2 bánh cho chế độ dò line.
+// - PidController: tính hiệu chỉnh từ sai số vị trí line (-2..+2), có giới hạn
+//   tích phân (chống bão hòa) và giới hạn đầu ra; thời gian tính bằng giây.
+// - forwardCorrectionLimit / mixForwardSpeeds: biến hiệu chỉnh PID thành tốc
+//   độ trái/phải, chỉ cho chạy tiến (không bao giờ ra số âm).
+// Không gọi phần cứng nên kiểm thử được trên máy tính.
+// =============================================================================
 #include "pid.h"
 #include <algorithm>
 #include <cmath>
 
+// Xóa trạng thái PID (tích phân, sai số trước) — gọi khi bắt đầu/tiếp tục chạy.
 void PidController::reset() {
     integral_ = 0;
     previousError_ = 0;
     hasPrevious_ = false;
 }
 
+// Tính một bước PID từ sai số hiện tại và khoảng thời gian dtSeconds.
+// Trả về output = P + I + D đã giới hạn; valid = false (và reset) nếu đầu vào
+// hoặc hệ số không hợp lệ (NaN, dt ngoài 1 ms..1 s, hệ số âm...).
 PidResult PidController::update(float error, float dtSeconds) {
     PidResult result;
     if (!std::isfinite(error) || !std::isfinite(dtSeconds) || dtSeconds < 0.001f || dtSeconds > 1.0f ||
@@ -42,11 +54,15 @@ PidResult PidController::update(float error, float dtSeconds) {
     return result;
 }
 
+// Giới hạn hiệu chỉnh PID tối đa sao cho base ± hiệu chỉnh vẫn nằm trong
+// 0..maximum. Trả về 0 nếu tham số không hợp lệ (khi đó RUN bị chặn).
 float forwardCorrectionLimit(int base, int maximum, float requested) {
     if (base <= 0 || base >= maximum || !std::isfinite(requested) || requested <= 0) return 0;
     return std::min(requested, static_cast<float>(std::min(base, maximum - base)));
 }
 
+// Trộn tốc độ: trái = base + correction, phải = base - correction, kẹp trong
+// 0..maximum (chỉ chạy tiến). valid = false nếu tham số không hợp lệ.
 WheelSpeeds mixForwardSpeeds(int base, float correction, int maximum) {
     WheelSpeeds speeds;
     if (maximum <= 0 || base < 0 || base > maximum || !std::isfinite(correction)) return speeds;

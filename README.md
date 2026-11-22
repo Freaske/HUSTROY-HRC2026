@@ -14,13 +14,21 @@ pio run -e esp32dev
 python3 tests/run_host_tests.py
 ```
 
+**Mô phỏng Wokwi** (`diagram.json` + `wokwi.toml` ở gốc): build trước, rồi
+VS Code → `Wokwi: Start Simulator`. Wokwi không có TB6612/motor DC nên chỉ
+mô phỏng tín hiệu điều khiển: LED trên PWMA/AIN1/AIN2 (18/13/14),
+PWMB/BIN1/BIN2 (19/21/22), STBY (23) và logic analyzer. Bánh "chạy" khi
+STBY sáng + IN1 hoặc IN2 sáng; độ sáng LED PWM theo duty. Terminal Wokwi
+không hiện chữ đang gõ; để thấy chữ, khi simulator đang chạy mở terminal khác:
+`pio device monitor -p rfc2217://localhost:4000 -b 115200 --echo --eol LF`.
+
 Lần đầu nạp board thật: đọc [hướng dẫn USB-C, Upload và Serial Monitor](docs/esp32-upload-guide.vi.md).
 Hướng dẫn upload cũng mô tả bản chẩn đoán cũ: muốn trở lại bản đó, đặt
 MOTOR_HARDWARE_ENABLED=false trước khi build/nạp.
 
 Serial 115200 baud, viết HOA và Enter:
 
-- `MODE MOTOR_TEST`, rồi `ARM`: `LEFT 30`, `RIGHT -30`, `BOTH 30`, `SET 50 30`; timeout 500 ms và tự DISARM.
+- `MODE MOTOR_TEST`, rồi `ARM`: `LEFT 30`, `RIGHT -30`, `BOTH 30`, `SET 50 30`; timeout 10 s và tự DISARM.
 - `MODE SENSOR_TEST`: chỉ đọc/log cảm biến, motor dừng.
 - `MODE LINE_FOLLOW`: `ARM`, chờ line hợp lệ, rồi `RUN`; không tự chạy.
 - `STOP` dừng và giữ ARM; `DISARM` dừng và khóa lại. `!` dừng + DISARM không cần Enter, sau đó Enter để xóa dòng.

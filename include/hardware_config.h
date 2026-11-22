@@ -1,24 +1,36 @@
+// =============================================================================
+// hardware_config.h — Kiểm tra cấu hình GPIO NGAY LÚC BIÊN DỊCH.
+// Các hàm constexpr dưới đây xác nhận chân cảm biến, nút và chân dự trữ là
+// hợp lệ với ESP32 gốc và không trùng chân motor/LED. Sai thì static_assert
+// báo lỗi và không build được, tránh cắm nhầm chân gây hỏng phần cứng.
+// =============================================================================
 #pragma once
 #include "config.h"
 
+// Chân có thể dùng làm output an toàn trên ESP32 gốc.
 // Conservative classic ESP32 policy; does not claim a board/wiring is confirmed.
 constexpr bool hardwareOutputPinAllowed(int pin) {
     return pin == 4 || pin == 13 || pin == 14 || pin == 18 || pin == 19 ||
            pin == 21 || pin == 22 || pin == 23 || pin == 25 || pin == 26 ||
            pin == 27 || pin == 32 || pin == 33;
 }
+// Chân thuộc ADC1 (đọc analog được khi bật Wi-Fi/Bluetooth).
 constexpr bool hardwareAdc1Pin(int pin) {
     return pin == 32 || pin == 33 || pin == 34 || pin == 35 || pin == 36 || pin == 39;
 }
+// Chân này có đang được motor dùng không.
 constexpr bool hardwareMotorUses(int pin) {
     return MOTOR_HARDWARE_ENABLED && (pin == MOTOR_PWMA_PIN || pin == MOTOR_AIN1_PIN ||
            pin == MOTOR_AIN2_PIN || pin == MOTOR_PWMB_PIN || pin == MOTOR_BIN1_PIN ||
            pin == MOTOR_BIN2_PIN || pin == MOTOR_STBY_PIN);
 }
+// Chân này có đang được giữ chỗ cho cảm biến siêu âm không.
 constexpr bool hardwareFutureUses(int pin) {
     return pin >= 0 && (pin == RESERVED_ULTRASONIC_TRIG_PIN ||
                         pin == RESERVED_ULTRASONIC_ECHO_PIN);
 }
+// Kiểm tra 5 chân cảm biến: đúng kiểu (ADC1 nếu AO), không trùng nhau/trùng
+// motor/LED/nút, ngưỡng nằm trong 1..4094.
 constexpr bool hardwareSensorsValid() {
     if (SENSOR_INPUT_MODE != SensorInputMode::DIGITAL_DO &&
         SENSOR_INPUT_MODE != SensorInputMode::ANALOG_AO) return false;
@@ -34,6 +46,7 @@ constexpr bool hardwareSensorsValid() {
     }
     return true;
 }
+// Kiểm tra chân nút chọn chế độ hợp lệ và không trùng chân khác.
 constexpr bool hardwareButtonValid() {
     if (!hardwareOutputPinAllowed(MODE_BUTTON_PIN) || MODE_BUTTON_PIN == STATUS_LED_PIN ||
         hardwareMotorUses(MODE_BUTTON_PIN) || hardwareFutureUses(MODE_BUTTON_PIN)) return false;
@@ -42,6 +55,7 @@ constexpr bool hardwareButtonValid() {
     }
     return true;
 }
+// Kiểm tra chân giữ chỗ cho siêu âm (TRIG/ECHO) hợp lệ và không trùng.
 constexpr bool hardwareReservationsValid() {
     const int pins[] = {RESERVED_ULTRASONIC_TRIG_PIN, RESERVED_ULTRASONIC_ECHO_PIN};
     if (pins[0] >= 0 && pins[0] == pins[1]) return false;

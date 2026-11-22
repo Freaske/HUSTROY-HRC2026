@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-CONFIG = (ROOT / "include/config.h").read_text()
+CONFIG = (ROOT / "include/config.h").read_text(encoding="utf-8")
 FIXTURE = dict(zip(
     ["MOTOR_PWMA_PIN", "MOTOR_AIN1_PIN", "MOTOR_AIN2_PIN", "MOTOR_PWMB_PIN",
      "MOTOR_BIN1_PIN", "MOTOR_BIN2_PIN", "MOTOR_STBY_PIN"],
@@ -34,7 +34,7 @@ def build(folder, changes, expect_failure=False,
     for header in (ROOT / "include").glob("*.h"):
         if header.name != "config.h":
             (folder / header.name).write_bytes(header.read_bytes())
-    (folder / "config.h").write_text(configure(changes))
+    (folder / "config.h").write_text(configure(changes), encoding="utf-8")
     command = ["c++", "-std=c++17", "-Wall", "-Wextra", "-Werror",
                "-DCONFIG_IDF_TARGET_ESP32", "-I", str(folder),
                "-I", str(ROOT / "tests/host"), "-I", str(ROOT / "include"),
@@ -88,8 +88,14 @@ def main():
         sensor_config = {**enabled, "SENSOR_HARDWARE_ENABLED": "true",
                          "SENSOR_INPUT_MODE": "SensorInputMode::ANALOG_AO",
                          "SENSOR_PINS": "{{32,33,34,35,36}}",
+                         # Host fixtures simulate low=1000/high=3000, so pin the
+                         # threshold here instead of inheriting measured bench values.
+                         "SENSOR_ANALOG_THRESHOLDS": "{{2048,2048,2048,2048,2048}}",
                          "SENSOR_CALIBRATION_CONFIRMED": "true",
-                         "SENSOR_DISCONNECT_BIAS_CONFIRMED": "true"}
+                         "SENSOR_DISCONNECT_BIAS_CONFIRMED": "true",
+                         # Classic latched-stop behaviour; auto modes are tested below.
+                         "LINE_AUTO_RESUME": "false",
+                         "AUTO_START_ON_BOOT": "false"}
         for name, changes in [
             ("analog", {}),
             ("digital", {"SENSOR_INPUT_MODE": "SensorInputMode::DIGITAL_DO",
@@ -108,6 +114,11 @@ def main():
             build(folder, {**sensor_config, **changes})
             subprocess.run([str(folder / "test"), "system-gates"], check=True)
             print(f"PASS: RUN blocked by {name}", flush=True)
+        build(folder, {**sensor_config, "LINE_AUTO_RESUME": "true"})
+        subprocess.run([str(folder / "test"), "system-auto"], check=True)
+        build(folder, {**sensor_config, "LINE_AUTO_RESUME": "true", "AUTO_START_ON_BOOT": "true"})
+        for scenario in ["system-autostart", "system-autostart-cancel"]:
+            subprocess.run([str(folder / "test"), scenario], check=True)
         build(folder, {**sensor_config, "MODE_BUTTON_ENABLED": "true", "MODE_BUTTON_PIN": 27})
         for scenario in ["system-button", "system-held-button"]:
             subprocess.run([str(folder / "test"), scenario], check=True)
