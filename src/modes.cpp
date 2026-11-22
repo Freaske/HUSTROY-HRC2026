@@ -1,3 +1,13 @@
+// =============================================================================
+// modes.cpp — "Bộ não" của robot: quản lý chế độ, an toàn và vòng điều khiển.
+// - Nhận lệnh qua Serial (HELP, STATUS, ARM, RUN, STOP, DISARM, !, MODE ...,
+//   LEFT/RIGHT/BOTH/SET n) và nút chọn chế độ (nếu bật).
+// - Mỗi CONTROL_PERIOD_MS: đọc cảm biến; ở LINE_FOLLOW thì tính PID và đặt
+//   tốc độ motor. Mất line -> dừng (hoặc tạm dừng chờ line nếu LINE_AUTO_RESUME).
+// - Các khóa an toàn: phải ARM mới chạy, timeout thử motor, chặn khi vòng điều
+//   khiển bị trễ, lỗi cảm biến/motor -> dừng và DISARM.
+// - Tự khởi động dò line sau khi bật nguồn nếu AUTO_START_ON_BOOT = true.
+// =============================================================================
 #include <Arduino.h>
 #include <algorithm>
 #include <cerrno>
@@ -30,6 +40,8 @@ bool buttonCandidate = true;
 bool buttonStable = true;
 bool buttonReleased = false;
 unsigned long buttonChangedAt = 0;
+bool autoStartPending = false;
+unsigned long bootAt = 0;
 
 bool rightLineIsCentered(const SensorFrame& frame) {
     if (!frame.rawAvailable || !frame.active[CENTER_SENSOR] || frame.activeCount > 3) return false;
@@ -52,6 +64,19 @@ bool rightLineIsCentered(const SensorFrame& frame) {
     return true;
 }
 
+// Tạm dừng dò line (chỉ dùng khi LINE_AUTO_RESUME): tắt motor nhưng vẫn giữ
+// RUNNING/ARMED để tự chạy lại khi thấy line ổn định. In lý do một lần.
+void pauseLineFollow(const char* reason) {
+    if (status.paused) return;
+    motorStop();
+    status.paused = true;
+    status.leftCommand = status.rightCommand = 0;
+    status.error = status.correction = 0;
+    controller.reset();
+    Serial.printf("PAUSE: %s; motors stopped, waiting for stable line.\n", reason);
+}
+
+// In danh sách lệnh Serial (lệnh HELP).
 void printHelp() {
     Serial.println("HELP | STATUS | ARM | STOP | DISARM | ! (disarm immediately, then Enter)");
     Serial.println("MODE MOTOR_TEST | MODE SENSOR_TEST | MODE LINE_FOLLOW | MODE RIGHT_LINE");
@@ -61,10 +86,14 @@ void printHelp() {
     Serial.printf("RIGHT_LINE: ARM, center the line, then RUN. Right PWM %d, up to %lu ms.\n",
                   RIGHT_LINE_TEST_PWM, RIGHT_LINE_TEST_MAX_RUN_MS);
     Serial.println("TUNING: KP=<gain> | KD=<gain> | SPD=<duty> | GET | SAVE (stopped) | GO (RUN)");
+    Serial.println(LINE_AUTO_RESUME ?
+                   "LINE_FOLLOW: ARM, then RUN. Line lost = pause, line found = resume. Mode changes always DISARM." :
+                   "LINE_FOLLOW: ARM, wait for stable line, then RUN. Mode changes always DISARM.");
     Serial.printf("Duty range -%d..%d/255, manual timeout=%lu ms, RUN limit=%lu ms.\n",
                   MAX_SPEED, MAX_SPEED, MOTOR_TEST_TIMEOUT_MS, LINE_FOLLOW_MAX_RUN_MS);
 }
 
+// In trạng thái tổng quát: chế độ, ARM, RUN, motor, cảm biến, lý do dừng (lệnh STATUS).
 void printStatus() {
     Serial.printf("MODE=%s ARMED=%d RUN=%d MOTOR=%s SENSORS=%s CAL=%d BIAS=%d STOP=%s\n",
                   modeName(status.mode), status.armed, status.running, motorIsReady() ? "READY" : "DISABLED/FAULT",
@@ -95,10 +124,19 @@ void printSensors() {
     const auto& frame = status.sensors;
     printSensorSample(frame);
     Serial.printf(" STATE=%s DIR=%s POS=%s%.2f ERR=%.2f CORR=%.2f L=%d R=%d RUN=%d\n",
+// In một dòng log cảm biến + PID: giá trị thô, bit, trạng thái, vị trí,
+// sai số, hiệu chỉnh, lệnh motor trái/phải. Gọi định kỳ ngoài MOTOR_TEST.
+void printSensors() {
+    const auto& frame = status.sensors;
+    Serial.printf("RAW=[%d,%d,%d,%d,%d] BITS=%d%d%d%d%d RAW_OK=%d VALID=%d ALL=%d ",
+                  frame.raw[0], frame.raw[1], frame.raw[2], frame.raw[3], frame.raw[4],
+                  frame.active[0], frame.active[1], frame.active[2], frame.active[3], frame.active[4],
+                  frame.rawAvailable, frame.valid, frame.allActive);
+    Serial.printf("STATE=%s DIR=%s POS=%s%.2f ERR=%.2f CORR=%.2f L=%d R=%d RUN=%d PAUSE=%d\n",
                   lineStateName(frame.state), lineDirectionName(frame.direction),
                   frame.valid && frame.state == LineState::LINE_DETECTED ? "" : "UNUSABLE:",
                   frame.position, status.error, status.correction,
-                  status.leftCommand, status.rightCommand, status.running);
+                  status.leftCommand, status.rightCommand, status.running, status.paused);
 }
 
 void stopForLine(const char* reason, unsigned long now) {
@@ -111,11 +149,14 @@ void stopForLine(const char* reason, unsigned long now) {
     Serial.println("");
 }
 
+// Từ chối lệnh sai: dừng motor, DISARM và báo lỗi.
 void rejectCommand() {
     modesDisarm("BAD_COMMAND");
     Serial.println("ERROR: command/mode/range invalid; stopped and DISARMED. Type HELP.");
 }
 
+// Kiểm tra các điều kiện dừng khẩn khi motor đang chạy: lỗi motor, hết giờ
+// thử motor, hết giờ RUN (khi tắt auto-resume), vòng điều khiển bị trễ.
 void checkMotionDeadline(unsigned long now) {
     if (!status.running) return;
     if (!motorIsReady()) {
@@ -123,7 +164,7 @@ void checkMotionDeadline(unsigned long now) {
     } else if (status.mode == RobotMode::MOTOR_TEST &&
                now - motionStartedAt >= MOTOR_TEST_TIMEOUT_MS) {
         modesDisarm("TIMEOUT");
-    } else if (status.mode == RobotMode::LINE_FOLLOW &&
+    } else if (!LINE_AUTO_RESUME && status.mode == RobotMode::LINE_FOLLOW &&
                now - motionStartedAt >= LINE_FOLLOW_MAX_RUN_MS) {
         modesDisarm("RUN_TIMEOUT");
     } else if (status.mode == RobotMode::RIGHT_LINE &&
@@ -135,6 +176,7 @@ void checkMotionDeadline(unsigned long now) {
     }
 }
 
+// Đọc số tốc độ từ chuỗi lệnh; chỉ chấp nhận số nguyên trong [-MAX_SPEED, MAX_SPEED].
 bool parseTestSpeed(const char* token, int& speed) {
     if (!token) return false;
     errno = 0;
@@ -145,6 +187,8 @@ bool parseTestSpeed(const char* token, int& speed) {
     return true;
 }
 
+// Tách và thực hiện một dòng lệnh Serial (STOP, DISARM, HELP, STATUS, ARM,
+// RUN, MODE ..., LEFT/RIGHT/BOTH n, SET l r). Lệnh sai -> rejectCommand().
 void processCommand(char* line, unsigned long now) {
     char reply[96];
     if (tuningCommand(line, status.running, reply, sizeof(reply))) {
@@ -217,10 +261,16 @@ void processCommand(char* line, unsigned long now) {
                        status.leftCommand, status.rightCommand, MOTOR_TEST_TIMEOUT_MS);
 }
 
+// Đọc từng ký tự Serial (tối đa 64 ký tự mỗi lần): '!' dừng khẩn ngay,
+// Enter thì thực hiện dòng lệnh. Có ký tự bất kỳ thì hủy tự khởi động.
 void pollSerial() {
     for (unsigned int count = 0; count < 64 && Serial.available() > 0; ++count) {
         checkMotionDeadline(millis());
         const char c = static_cast<char>(Serial.read());
+        if (autoStartPending) {
+            autoStartPending = false; // Operator is at the keyboard: never auto-start.
+            Serial.println("AUTO START cancelled by Serial input.");
+        }
         if (c == '!') {
             modesDisarm("EMERGENCY_COMMAND");
             commandLength = 0;
@@ -243,6 +293,8 @@ void pollSerial() {
     }
 }
 
+// Đọc nút chọn chế độ (nếu bật), có chống dội. Mỗi lần nhấn chuyển
+// MOTOR_TEST -> SENSOR_TEST -> LINE_FOLLOW -> ... (không bao giờ tự ARM).
 void pollButton(unsigned long now) {
     if (!MODE_BUTTON_ENABLED) return;
     const bool high = digitalRead(MODE_BUTTON_PIN) == HIGH;
@@ -259,6 +311,7 @@ void pollButton(unsigned long now) {
 }
 } // namespace
 
+// Đổi chế độ thành chuỗi để in Serial.
 const char* modeName(RobotMode mode) {
     switch (mode) {
         case RobotMode::MOTOR_TEST: return "MOTOR_TEST";
@@ -268,12 +321,15 @@ const char* modeName(RobotMode mode) {
         default: return "INVALID";
     }
 }
+// Trả về trạng thái hiện tại của robot (chỉ đọc).
 const RobotStatus& modesStatus() { return status; }
 
+// Dừng motor, xóa lệnh/PID, ghi lý do dừng. Vẫn giữ ARM.
 void modesStop(const char* reason) {
     const bool wasRunning = status.running;
     motorStop();
     status.running = false;
+    status.paused = false;
     status.leftCommand = status.rightCommand = 0;
     status.error = status.correction = 0;
     status.stopReason = reason;
@@ -285,11 +341,14 @@ void modesStop(const char* reason) {
     if (wasRunning) Serial.printf("STOP: %s (coast). Explicit command required to restart.\n", reason);
 }
 
+// Thu hồi ARM rồi dừng motor; muốn chạy lại phải ARM lại.
 void modesDisarm(const char* reason) {
     status.armed = false;
     modesStop(reason);
 }
 
+// Cho phép motor chạy (lệnh ARM). Bản thân ARM không làm bánh quay.
+// Bị chặn nếu motor chưa sẵn sàng hoặc đang ở SENSOR_TEST.
 bool modesArm() {
     modesDisarm("ARM_REQUEST"); // ARM itself never moves the wheels, even if repeated.
     if (!motorIsReady() || status.mode == RobotMode::SENSOR_TEST) {
@@ -301,6 +360,7 @@ bool modesArm() {
     return true;
 }
 
+// Chuyển sang chế độ mới; luôn dừng motor và DISARM trước.
 void modesSelect(RobotMode mode, unsigned long now) {
     modesDisarm("MODE_CHANGE");
     if (mode != RobotMode::MOTOR_TEST && mode != RobotMode::SENSOR_TEST &&
@@ -311,6 +371,9 @@ void modesSelect(RobotMode mode, unsigned long now) {
     Serial.printf("MODE=%s STOPPED and DISARMED. ARM required before motion.\n", modeName(mode));
 }
 
+// Bắt đầu dò line (lệnh RUN). Cần: LINE_FOLLOW + ARM, motor/cảm biến sẵn
+// sàng, đã xác nhận hiệu chuẩn. Tắt auto-resume thì còn cần đang thấy line
+// ổn định; bật auto-resume thì bắt đầu ở trạng thái tạm dừng chờ line.
 bool modesRun(unsigned long now) {
     if (status.running) {
         // Repeated RUN cannot keep extending a finite trial.
@@ -326,6 +389,13 @@ bool modesRun(unsigned long now) {
     if (!status.armed || !motorIsReady() || !sensorsIsReady() || !lineReady ||
         now - status.sensors.sampledAt > CONTROL_MAX_GAP_MS || validSamples < LINE_START_VALID_SAMPLES) {
         const unsigned int heldSamples = validSamples;
+    // Auto-resume starts PAUSED, so it need not be on the line yet: it waits for one.
+    const bool lineReady = LINE_AUTO_RESUME ||
+        (status.sensors.valid && status.sensors.state == LineState::LINE_DETECTED &&
+         now - status.sensors.sampledAt <= CONTROL_MAX_GAP_MS && validSamples >= LINE_START_VALID_SAMPLES);
+    if (!status.armed || status.mode != RobotMode::LINE_FOLLOW || !motorIsReady() || !sensorsIsReady() ||
+        !SENSOR_CALIBRATION_CONFIRMED || !SENSOR_DISCONNECT_BIAS_CONFIRMED || !lineReady ||
+        forwardCorrectionLimit(BASE_SPEED, MAX_SPEED, PID_CORRECTION_LIMIT) <= 0) {
         modesDisarm("RUN_BLOCKED");
         if (rightLineMode) {
             Serial.printf("BLOCKED: RIGHT_LINE needs ARM, motor/sensors ready and a stable centered line "
@@ -349,11 +419,16 @@ bool modesRun(unsigned long now) {
     lineRecovering = false;
     lineRecoveryStartedAt = now;
     status.running = true;
+    status.paused = LINE_AUTO_RESUME;
     motionStartedAt = lastControlAt = now;
-    Serial.println("RUN armed; first wheel command occurs at the next control tick.");
+    Serial.println(LINE_AUTO_RESUME ?
+                   "RUN (auto-resume): motors run while a stable line is seen. STOP or ! to end." :
+                   "RUN armed; first wheel command occurs at the next control tick.");
     return true;
 }
 
+// Khởi tạo lúc bật nguồn: về MOTOR_TEST, STOPPED + DISARMED, cấu hình nút
+// (nếu bật) và hẹn giờ tự khởi động dò line (nếu AUTO_START_ON_BOOT).
 void modesInit(unsigned long now) {
     tuningInit();
     status = RobotStatus{};
@@ -365,9 +440,23 @@ void modesInit(unsigned long now) {
         buttonChangedAt = now;
     }
     Serial.println("HUSTROY integrated firmware: startup STOPPED and DISARMED. Type HELP.");
+    bootAt = now;
+    autoStartPending = AUTO_START_ON_BOOT;
+    if (autoStartPending) {
+        Serial.printf("AUTO START in %lu ms (LINE_FOLLOW). Send any key to cancel.\n", AUTO_START_DELAY_MS);
+    }
 }
 
+// Một vòng cập nhật (gọi trong loop()): tự khởi động nếu đến giờ, kiểm tra
+// timeout, đọc nút; mỗi CONTROL_PERIOD_MS đọc cảm biến và (nếu đang dò line)
+// tính PID -> đặt tốc độ motor hoặc tạm dừng/dừng khi mất line; xử lý Serial
+// và in log cảm biến định kỳ.
 void modesUpdate(unsigned long now) {
+    if (autoStartPending && now - bootAt >= AUTO_START_DELAY_MS) {
+        autoStartPending = false; // One attempt only; after STOP/! it never restarts itself.
+        modesSelect(RobotMode::LINE_FOLLOW, now);
+        if (modesArm()) modesRun(now);
+    }
     checkMotionDeadline(now);
     pollButton(now);
     const unsigned long elapsed = now - lastControlAt;
@@ -440,6 +529,19 @@ void modesUpdate(unsigned long now) {
                 }
             } else {
                 lineRecovering = false;
+        if (status.mode == RobotMode::LINE_FOLLOW && status.running) {
+            const bool onLine = status.sensors.valid && status.sensors.state == LineState::LINE_DETECTED;
+            if (!onLine && (!LINE_AUTO_RESUME || !status.sensors.rawAvailable)) {
+                // Latched stop; raw/ADC faults always latch even with auto-resume.
+                modesDisarm(status.sensors.rawAvailable ? lineStateName(status.sensors.state) : "SENSOR_FAULT");
+            } else if (!onLine) {
+                pauseLineFollow(lineStateName(status.sensors.state));
+            } else if (!status.paused || validSamples >= LINE_START_VALID_SAMPLES) {
+                if (status.paused) {
+                    status.paused = false;
+                    controller.reset();
+                    Serial.println("RESUME: stable line found, motors running.");
+                }
                 status.error = INVERT_PID_ERROR ? -status.sensors.position : status.sensors.position;
                 lastValidError = status.error;
                 const auto& tuning = tuningParameters();

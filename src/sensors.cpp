@@ -1,3 +1,11 @@
+// =============================================================================
+// sensors.cpp — Đọc và diễn giải 5 cảm biến dò line (TCRT5000, chân AO/DO).
+// - sensorsInit(): cấu hình 5 chân ADC (12 bit, 11 dB) hoặc digital.
+// - sensorsRead(): đọc giá trị thô, so ngưỡng -> bit 0/1 cho từng mắt.
+// - analyzeSensorPattern(): từ 5 bit tính vị trí line (-2 trái .. +2 phải) và
+//   trạng thái: thấy line / mất line / ngã tư / không hợp lệ.
+// Phần diễn giải không gọi phần cứng nên kiểm thử được trên máy tính.
+// =============================================================================
 #include <Arduino.h>
 #include <algorithm>
 #include "sensors.h"
@@ -9,6 +17,9 @@ constexpr int ANALOG_DOMINANT_PEAK_MIN_MARGIN = 24;
 bool ready = false;
 }
 
+// Phân tích 5 bit "mắt nào đang thấy line": tính vị trí trung bình (-2..+2),
+// hướng lệch (LEFT/RIGHT/FORWARD) và phát hiện mất line, ngã tư, hoặc nhiều
+// vùng line tách rời (không hợp lệ).
 SensorFrame analyzeSensorPattern(const std::array<bool, SENSOR_COUNT>& active) {
     // Attribution: Line_Follower.zip, src/main.cpp and sensor_logic_backup.txt.
     SensorFrame frame;
@@ -46,6 +57,9 @@ SensorFrame analyzeSensorPattern(const std::array<bool, SENSOR_COUNT>& active) {
     return frame;
 }
 
+// Chuyển 5 giá trị thô thành bit (so với ngưỡng, có thể đảo cực), rồi gọi
+// analyzeSensorPattern(). Giá trị thô ngoài phạm vi -> rawAvailable = false.
+// Nếu chưa xác nhận hiệu chuẩn thì frame luôn INVALID (không được dùng để chạy).
 SensorFrame interpretSensorRaw(const std::array<int, SENSOR_COUNT>& raw,
                               SensorInputMode mode,
                               const std::array<int, SENSOR_COUNT>& thresholds,
@@ -101,6 +115,8 @@ SensorFrame interpretSensorRaw(const std::array<int, SENSOR_COUNT>& raw,
     return frame;
 }
 
+// Cấu hình 5 chân cảm biến (INPUT, không pull-up; ADC 12 bit, suy hao 11 dB).
+// Nếu cấu hình trong config.h sai/tắt thì in cảnh báo và không đọc cảm biến.
 void sensorsInit() {
     if (!SENSOR_HARDWARE_ENABLED || !hardwareSensorsValid()) {
         Serial.println("SENSORS DISABLED: confirm AO/DO, GPIOs and safe signal voltages in config.h.");
@@ -115,8 +131,11 @@ void sensorsInit() {
     Serial.println("SENSORS: raw reads ready; LINE_FOLLOW additionally requires confirmed calibration/bias.");
 }
 
+// Trả về true nếu cảm biến đã được cấu hình để đọc (chưa nói gì về hiệu chuẩn).
 bool sensorsIsReady() { return ready; }
 
+// Đọc một khung dữ liệu từ 5 cảm biến tại thời điểm now (ms) và diễn giải nó.
+// Cảm biến chưa sẵn sàng thì trả về frame INVALID.
 SensorFrame sensorsRead(unsigned long now) {
     SensorFrame frame;
     if (ready) {
@@ -132,6 +151,7 @@ SensorFrame sensorsRead(unsigned long now) {
     return frame;
 }
 
+// Đổi trạng thái line thành chuỗi để in ra Serial.
 const char* lineStateName(LineState state) {
     switch (state) {
         case LineState::LINE_DETECTED: return "LINE_DETECTED";
@@ -140,6 +160,7 @@ const char* lineStateName(LineState state) {
         default: return "INVALID";
     }
 }
+// Đổi hướng lệch line thành chuỗi để in ra Serial.
 const char* lineDirectionName(LineDirection direction) {
     switch (direction) {
         case LineDirection::LEFT: return "LEFT";

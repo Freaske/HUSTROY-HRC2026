@@ -240,17 +240,20 @@ int main(int argc, char** argv) {
             const unsigned long remaining = MOTOR_TEST_TIMEOUT_MS - beforeDeadline;
             sendArmed("BOTH 30\n");
             nowMs += beforeDeadline;
+            nowMs += MOTOR_TEST_TIMEOUT_MS - 100;
             send("STATUS\nHELP\n");
             nowMs += remaining;
             loop();
             expectStopped();  // HELP/STATUS must not extend the deadline.
             sendArmed("BOTH 30\n");
             nowMs += beforeDeadline;
+            nowMs += MOTOR_TEST_TIMEOUT_MS - 100;
             sendArmed("RIGHT 40\n");
             nowMs += remaining;
             loop();
             expectSpeeds(0, 40);  // A new valid motion starts a new pulse.
             nowMs += beforeDeadline;
+            nowMs += MOTOR_TEST_TIMEOUT_MS - 100;
             loop();
             expectStopped();
             assert(Serial.output.find("TIMEOUT") != std::string::npos);
