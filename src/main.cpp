@@ -21,6 +21,7 @@ bool ledOn = false;
 // Chạy một lần khi ESP32 có điện/reset: khởi tạo Serial, motor, cảm biến,
 // chế độ và LED. Sau hàm này robot luôn ở trạng thái STOPPED + DISARMED.
 void setup() {
+    Serial.setTxBufferSize(1024);
     Serial.begin(SERIAL_BAUD);
     Serial.printf("FW=%s | LED GPIO%u: double blink\n", FIRMWARE_ID,
                   static_cast<unsigned int>(STATUS_LED_PIN));
@@ -40,8 +41,10 @@ void loop() {
     modesUpdate(now);
     testLinkUpdate(millis());
     const unsigned long phase = (now - ledStartedAt) % STATUS_LED_CYCLE_MS;
-    const bool nextLedOn = phase < STATUS_LED_PULSE_MS ||
-                          (phase >= 2 * STATUS_LED_PULSE_MS && phase < 3 * STATUS_LED_PULSE_MS);
+    const bool nextLedOn = modesCountdownActive() ?
+        (((now - ledStartedAt) % 100UL) < 50UL) :
+        (phase < STATUS_LED_PULSE_MS ||
+         (phase >= 2 * STATUS_LED_PULSE_MS && phase < 3 * STATUS_LED_PULSE_MS));
     if (nextLedOn != ledOn) {
         ledOn = nextLedOn;
         digitalWrite(STATUS_LED_PIN, ledOn ? HIGH : LOW);

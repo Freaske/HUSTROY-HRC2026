@@ -29,6 +29,7 @@ SIM_CONFIG = {
     "SENSOR_PINS": "{{32,33,34,35,36}}",
     "SENSOR_CALIBRATION_CONFIRMED": "true",
     "SENSOR_DISCONNECT_BIAS_CONFIRMED": "true",
+    "LINE_FOLLOW_STEER_TRIM": "0",
     "MODE_BUTTON_ENABLED": "false",
     "RESERVED_ULTRASONIC_TRIG_PIN": "-1",
     "RESERVED_ULTRASONIC_ECHO_PIN": "-1",
@@ -51,7 +52,7 @@ def build(folder):
             raise ValueError(f"Không tìm thấy đúng một khai báo {name} trong config.h")
     (folder / "config.h").write_text(config)
     executable = folder / "robot"
-    sources = ("main", "modes", "motor", "sensors", "pid", "tuning", "test_link")
+    sources = ("main", "modes", "motor", "sensors", "pid", "line_follow", "tuning", "test_link")
     subprocess.run([
         "c++", "-std=c++17", "-O2", "-Wall", "-Wextra", "-Werror", "-DCONFIG_IDF_TARGET_ESP32",
         "-I", str(folder), "-I", str(ROOT / "tests/host"), str(DIRECTORY / "robot.cpp"),

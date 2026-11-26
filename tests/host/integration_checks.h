@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 
 void runPureLogicChecks() {
     const auto pattern = [](const std::string& bits) {
@@ -47,19 +48,20 @@ void runPureLogicChecks() {
     auto boundary = thresholds;
     assert(interpretSensorRaw(boundary, SensorInputMode::ANALOG_AO, thresholds, false, true).allActive);
     const std::array<int, 5> benchThresholds{{265, 291, 284, 325, 550}};
+    const std::array<bool, 5> splitLine{{true, false, true, false, false}};
     const std::array<int, 5> noisyLine{{268, 278, 351, 318, 359}};
     frame = interpretSensorRaw(noisyLine, SensorInputMode::ANALOG_AO, benchThresholds, false, true);
-    assert(frame.valid && frame.activeCount == 1 && frame.active[2] && frame.raw == noisyLine);
+    assert(!frame.valid && frame.activeCount == 2 && frame.active == splitLine && frame.raw == noisyLine);
     const std::array<int, 5> shiftedLine{{282, 289, 332, 300, 327}};
     frame = interpretSensorRaw(shiftedLine, SensorInputMode::ANALOG_AO, benchThresholds, false, true);
-    assert(frame.valid && frame.activeCount == 1 && frame.active[2] && frame.raw == shiftedLine);
+    assert(!frame.valid && frame.activeCount == 2 && frame.active == splitLine && frame.raw == shiftedLine);
     auto ambiguous = noisyLine;
     ambiguous[0] = 320;
     assert(!interpretSensorRaw(ambiguous, SensorInputMode::ANALOG_AO, benchThresholds, false, true).valid);
     auto invertedNoise = benchThresholds;
     for (std::size_t i = 0; i < SENSOR_COUNT; ++i) invertedNoise[i] = 2 * benchThresholds[i] - noisyLine[i];
     frame = interpretSensorRaw(invertedNoise, SensorInputMode::ANALOG_AO, benchThresholds, true, true);
-    assert(frame.valid && frame.activeCount == 1 && frame.active[2]);
+    assert(!frame.valid && frame.activeCount == 2 && frame.active == splitLine);
 
     PidController pid({20, 0, 0, 2, 50});
     assert(pid.update(0.5f, 0.02f).output == 10);
@@ -102,6 +104,65 @@ void runPureLogicChecks() {
     assert(!mixForwardSpeeds(50, std::numeric_limits<float>::quiet_NaN(), 150).valid);
 }
 
+void runLineV5LogicChecks() {
+    assert(lineCalibrationValid(LINE_BENCH_CALIBRATION, false));
+    assert(!lineCalibrationValid(LINE_BENCH_CALIBRATION, true));
+    auto broken = LINE_BENCH_CALIBRATION;
+    broken.coordinates[2] = broken.coordinates[1];
+    assert(!lineCalibrationValid(broken, false));
+    auto sample = [](const std::array<int, SENSOR_COUNT>& raw) {
+        return observeLine(interpretSensorRaw(raw, SensorInputMode::ANALOG_AO, SENSOR_ANALOG_THRESHOLDS,
+                                              false, true), SensorInputMode::ANALOG_AO, LINE_BENCH_CALIBRATION);
+    };
+    const auto white = LINE_BENCH_CALIBRATION.white;
+    auto raw = white;
+    raw[2] = 590; // Historical S3 false positive with the legacy 572-count threshold.
+    assert(sample(raw).reading == LineReading::Missing && !sample(raw).signal);
+    raw[2] = 2550;
+    raw[3] = 1500; // Useful analog edge below the legacy binary threshold.
+    const auto interpolated = sample(raw);
+    assert(interpolated.reading == LineReading::Position && interpolated.position > 0.20f &&
+           interpolated.position < 0.40f && interpolated.confidence > 0.5f);
+    raw = white;
+    raw.front() = raw.back() = 3500;
+    assert(sample(raw).reading == LineReading::Ambiguous && sample(raw).signal);
+    assert(sample(LINE_BENCH_CALIBRATION.black).reading == LineReading::Ambiguous);
+    raw[2] = 5000;
+    assert(sample(raw).reading == LineReading::Invalid);
+
+    LineFollower follow;
+    auto settings = tuningParameters();
+    settings.trim = 0;
+    settings.start = {25, 30, 30, 35};
+    settings.sustain = {15, 20, 20, 25};
+    raw = white;
+    raw[2] = LINE_BENCH_CALIBRATION.black[2];
+    const auto center = sample(raw);
+    unsigned now = 0;
+    auto tick = [&](const LineObservation& line) { now += LINE_PERIOD_US; return follow.update(line, settings, now, LINE_PERIOD_US); };
+    auto result = tick(center);
+    assert(result.d == 0 && result.left == 0 && result.right == 0);
+    result = tick(center);
+    assert(result.left == 25 && result.right == 30);
+    for (int i = 0; i < 30; ++i) result = tick(center);
+    assert(result.left == 60 && result.right == 60);
+    const auto missing = sample(white);
+    result = tick(missing);
+    assert(result.state == FollowState::Search && result.base > 0);
+    tick(missing);
+    result = tick(missing);
+    assert(result.base == 0 && result.left + result.right <= 0);
+    result = tick(center);
+    assert(result.state == FollowState::Recover && result.d == 0 && result.left == 0 && result.right == 0);
+    result = tick(missing);
+    assert(result.state == FollowState::Search && result.base == 0);
+    for (unsigned i = 0; i < LINE_REACQUIRE_SAMPLES; ++i) result = tick(center);
+    assert(result.state == FollowState::Recover && result.base < 0.48f * settings.speed);
+    for (unsigned i = 0; i < LINE_SETTLE_US / LINE_PERIOD_US; ++i) result = tick(center);
+    assert(result.state == FollowState::Tracking && result.base < settings.speed);
+    assert(follow.update(center, settings, now + LINE_STALE_US, LINE_STALE_US).fault);
+}
+
 void setPattern(const std::string& bits) {
     for (std::size_t i = 0; i < SENSOR_COUNT; ++i) {
         const bool high = INVERT_LINE_SENSOR ? bits[i] != '1' : bits[i] == '1';
@@ -110,7 +171,23 @@ void setPattern(const std::string& bits) {
     }
 }
 void step(unsigned long milliseconds = CONTROL_PERIOD_MS) { nowMs += milliseconds; loop(); }
-void warmup() { for (unsigned int i = 0; i < LINE_START_VALID_SAMPLES; ++i) step(); }
+constexpr auto FOLLOW_MS = LINE_PERIOD_US / 1000;
+void followTick() { step(FOLLOW_MS); }
+void warmup() {
+    for (unsigned int i = 0; i < LINE_START_VALID_SAMPLES; ++i) {
+        if (modesStatus().mode == RobotMode::LINE_FOLLOW) followTick();
+        else step();
+    }
+}
+void applyCalibration() {
+    if (SENSOR_INPUT_MODE != SensorInputMode::ANALOG_AO) return;
+    const std::string low = "0,0,0,0,0", high = "4095,4095,4095,4095,4095";
+    const auto& white = INVERT_LINE_SENSOR ? high : low;
+    const auto& black = INVERT_LINE_SENSOR ? low : high;
+    send("CAL=" + white + "/" + black + "/" + white + "\n");
+    assert(lineCalibrationApplied());
+}
+
 void startFollow() {
     setPattern("00100");
     send("MODE LINE_FOLLOW\n");
@@ -127,8 +204,9 @@ void startFollow() {
     if (!modesStatus().running) std::cerr << "RUN unexpectedly blocked at ms=" << nowMs << "\n" << Serial.output;
     assert(modesStatus().running);
     expectStopped(); // RUN itself must not issue a wheel command.
-    step();
-    expectSpeeds(BASE_SPEED, BASE_SPEED);
+    for (int i = 0; i < 22; ++i) followTick();
+    expectSpeeds(tuningParameters().speed + tuningParameters().trim,
+                 tuningParameters().speed - tuningParameters().trim);
 }
 
 void runSystemChecks(const std::string& scenario) {
@@ -175,25 +253,26 @@ void runSystemChecks(const std::string& scenario) {
     }
     if (scenario == "system-tuning") {
         setPattern("00100");
-        send("KP=20\nKD=0\nSPD=150\nMODE LINE_FOLLOW\nARM\n"); warmup(); send("GO\n");
-        step(); expectSpeeds(150, 150);
-        const auto s150Right = mixForwardSpeeds(150, 20, MAX_SPEED);
-        setPattern("00010"); step(); expectSpeeds(s150Right.left, s150Right.right);
-        setPattern("01000"); step(); expectSpeeds(s150Right.right, s150Right.left);
-        setPattern("00010");
-        send("SPD=50\n");
-        step(); expectSpeeds(70, 30);
-        send("KP=30\r\nSPD=120\nGET\n");
-        assert(Serial.output.find("KP=30 KI=0 KD=0 SPD=120 MAX=" + std::to_string(MAX_SPEED)) != std::string::npos);
-        step(); expectSpeeds(150, 90);
-        send("SPD=" + std::to_string(MAX_SPEED + 1) + "\nKP=nan\nKD=-1\nSAVE\n");
-        assert(Serial.output.find("ERR SPD must") != std::string::npos);
+        send("MODE LINE_FOLLOW\nARM\n"); warmup(); send("GO\n");
+        assert(!modesStatus().running && !lineCalibrationApplied());
+        expectStopped();
+        send("CAL=200,200,200,200,200/201,201,201,201,201/200,200,200,200,200\n");
+        assert(!lineCalibrationApplied());
+        applyCalibration();
+        send("KP=20\nKD=0\nSPD=75\nTRIM=3\nX=-2,-1,0,1,2\nFF=35,30,33,30/25,25,25,25\nLIMIT=700\n");
+        startFollow();
+        send("KP=40\nSPD=120\nTRIM=31\nSAVE\n");
+        assert(tuningParameters().speed == 75 && tuningParameters().kp == 20 && tuningParameters().trim == 3);
+        assert(Serial.output.find("ERR STOP before changing settings") != std::string::npos);
         assert(Serial.output.find("ERR STOP before SAVE") != std::string::npos);
-        step(); expectSpeeds(150, 90);
-        send("KP=0\nKD=1\nSPD=50\n");
-        step(); expectSpeeds(50, 50); // Gain changes reset derivative history.
-        setPattern("00100"); step(); expectSpeeds(0, 100);
+        assert(Serial.output.find("LINE_CFG FW=") != std::string::npos);
+        assert(Serial.output.find("LINE_CAL INVERT=") != std::string::npos);
         send("STOP\n"); expectStopped();
+        send("SPD=50\nTRIM=0\nKP=nan\nKD=-1\nGET\nCAL?\n");
+        assert(tuningParameters().speed == 50 && tuningParameters().kp == 20 && tuningParameters().kd == 0);
+        assert(Serial.output.find("KP=20 KI=0 KD=0 SPD=50 MAX=") != std::string::npos);
+        startFollow();
+        send("!\n"); expectStopped();
         return;
     }
     if (scenario == "system-gates") {
@@ -291,131 +370,133 @@ void runSystemChecks(const std::string& scenario) {
         expectStopped();
         return;
     }
+    applyCalibration();
     startFollow();
-    const float corrLimit = forwardCorrectionLimit(BASE_SPEED, MAX_SPEED, PID_CORRECTION_LIMIT);
-    const float dtSeconds = static_cast<float>(CONTROL_PERIOD_MS) / 1000.0f;
-    PidController expectedPid({PID_KP, PID_KI, PID_KD, PID_INTEGRAL_LIMIT, corrLimit});
-    expectedPid.update(0.0f, dtSeconds);
-    setPattern("00010"); step();
-    auto expected = mixForwardSpeeds(BASE_SPEED, expectedPid.update(INVERT_PID_ERROR ? -1.0f : 1.0f, dtSeconds).output, MAX_SPEED);
-    expectSpeeds(expected.left, expected.right);
-    step();
-    expected = mixForwardSpeeds(BASE_SPEED, expectedPid.update(INVERT_PID_ERROR ? -1.0f : 1.0f, dtSeconds).output, MAX_SPEED);
-    expectSpeeds(expected.left, expected.right);
-    setPattern("01000"); step();
-    expected = mixForwardSpeeds(BASE_SPEED, expectedPid.update(INVERT_PID_ERROR ? 1.0f : -1.0f, dtSeconds).output, MAX_SPEED);
-    expectSpeeds(expected.left, expected.right);
-    send("MODE SENSOR_TEST\n"); expectStopped();
-    send("LEFT 30\n"); expectStopped(); // Wrong-mode motor command rejected.
-    assert(!modesStatus().running && modesStatus().mode == RobotMode::SENSOR_TEST);
-    Serial.output.clear();
-    step(DEBUG_LOG_INTERVAL_MS - 1); assert(Serial.output.empty());
-    step(1); assert(Serial.output.find("RAW=[") != std::string::npos);
-
-    const auto graceLimitFor = [](const std::string& bits) {
-        if (bits == "00000") return LINE_LOST_GRACE_MS;
-        if (bits == "11111" || bits == "10001") return LINE_INTERSECTION_STOP_MS;
-        return LINE_INVALID_GRACE_MS;
+    const auto checkSteer = [](const char* bits, int direction) {
+        setPattern(bits);
+        for (int i = 0; i < 12; ++i) followTick();
+        const auto& robot = modesStatus();
+        assert(robot.running && direction * (robot.leftCommand - robot.rightCommand) > 0);
+        expectSpeeds(robot.leftCommand, robot.rightCommand);
     };
-    const std::string stopPatterns[] = {"00000", "11111", "10001", "01010"};
-    for (const auto& bits : stopPatterns) {
+    const int rightSign = INVERT_PID_ERROR ? -1 : 1;
+    checkSteer("00010", rightSign);
+    checkSteer("01000", -rightSign);
+    checkSteer("00001", rightSign);
+    const int sharpL = modesStatus().leftCommand, sharpR = modesStatus().rightCommand;
+    assert(std::min(sharpL, sharpR) <= 0 && std::min(sharpL, sharpR) >= -LINE_REVERSE_PWM_LIMIT);
+    checkSteer("10000", -rightSign);
+    expectSpeeds(sharpR, sharpL);
+    send("MODE SENSOR_TEST\n"); expectStopped();
+    send("ARM\nRUN\nLEFT 30\n"); expectStopped();
+    assert(!modesStatus().armed && !modesStatus().running && modesStatus().mode == RobotMode::SENSOR_TEST);
+    for (const std::string bits : {"00000", "10000", "01000", "00100", "00010",
+                                  "00001", "01100", "11111", "00000"}) {
+        setPattern(bits);
+        Serial.output.clear();
+        step(179); assert(Serial.output.empty());
+        step(1);
+        if (SENSOR_INPUT_MODE == SensorInputMode::ANALOG_AO) {
+            assert(Serial.output.find("RAW:[") == 0 && Serial.output.find(" | THR:[") != std::string::npos);
+        } else {
+            assert(Serial.output.find("DIG:[") == 0);
+        }
+        assert(Serial.output.find(" | BIN:" + bits + " | ACT:" +
+                                  std::to_string(std::count(bits.begin(), bits.end(), '1')) +
+                                  "/5 | CLASS:UNVERIFIED") != std::string::npos);
+        expectStopped();
+    }
+
+    for (const std::string bits : {"00000", "11111", "10001", "01010"}) {
         startFollow();
         Serial.output.clear();
-        setPattern(bits); step();
-        const unsigned long limitMs = graceLimitFor(bits);
-        assert(modesStatus().running);
-        for (unsigned long elapsed = CONTROL_PERIOD_MS; elapsed < limitMs; elapsed += CONTROL_PERIOD_MS) {
-            step();
-            assert(modesStatus().running);
+        setPattern(bits); followTick();
+        const bool missing = bits == "00000";
+        const unsigned limit = (missing ? LINE_LOSS_LIMIT_US : LINE_AMBIGUITY_LIMIT_US) / LINE_PERIOD_US;
+        if (!missing) expectStopped(); // Ambiguous frames cancel output on the first sample.
+        for (unsigned elapsed = 1; elapsed < limit; ++elapsed) {
+            followTick(); assert(modesStatus().running);
+            if (missing && elapsed == 3) expectSpeeds(-LINE_SEARCH_PWM_LIMIT, LINE_SEARCH_PWM_LIMIT);
+            if (missing && elapsed == 12) expectSpeeds(LINE_SEARCH_PWM_LIMIT, -LINE_SEARCH_PWM_LIMIT);
         }
-        step();
-        assert(!modesStatus().running);
-        assert(!modesStatus().armed);
+        followTick();
+        assert(!modesStatus().running && !modesStatus().armed);
         expectStopped();
-        const auto start = Serial.output.find(std::string("LINE_STOP REASON=") + modesStatus().stopReason);
-        assert(start != std::string::npos);
-        const auto stopLog = Serial.output.substr(start, Serial.output.find('\n', start) - start);
-        assert(stopLog.find(" BITS=" + bits + " RAW_OK=1") != std::string::npos);
-        assert(stopLog.find(" PREV_L=" + std::to_string(BASE_SPEED) + " PREV_R=" +
-                            std::to_string(BASE_SPEED) + " RAW=[") != std::string::npos);
+        assert(std::string(modesStatus().stopReason) == (missing ? "LINE_LOST_TIMEOUT" : "LINE_AMBIGUOUS"));
+        assert(Serial.output.find("LINE_STATS FW=") != std::string::npos);
+        assert(Serial.output.find(missing ? "ZERO_EP=1" : "ZERO_EP=0") != std::string::npos);
+        assert(Serial.output.find(missing ? "MAX_ZERO_US=300000" : "MAX_ZERO_US=0") != std::string::npos);
+        assert(Serial.output.find("LINE_TIMING N=") != std::string::npos);
+        assert(Serial.output.find("BITS=" + bits + " RAW_OK=1") != std::string::npos);
         setPattern("00100"); warmup();
-        assert(!modesStatus().running); expectStopped(); // No automatic recovery.
+        assert(!modesStatus().running); expectStopped();
     }
-
-    // Transient LINE_LOST after a hard turn should pivot in-place toward the lost line and recover.
-    startFollow();
-    setPattern("00001"); step();
-    setPattern("00000"); step();
-    assert(modesStatus().running);
-    expectSpeeds(INVERT_PID_ERROR ? -BASE_SPEED : BASE_SPEED,
-                 INVERT_PID_ERROR ? BASE_SPEED : -BASE_SPEED);
-    setPattern("00100"); step();
-    assert(modesStatus().running);
-    assert(modesStatus().error == 0.0f);
-    send("STOP\n"); expectStopped();
-
-    startFollow();
-    setPattern("10000"); step();
-    setPattern("00000"); step();
-    assert(modesStatus().running);
-    expectSpeeds(INVERT_PID_ERROR ? BASE_SPEED : -BASE_SPEED,
-                 INVERT_PID_ERROR ? -BASE_SPEED : BASE_SPEED);
-    setPattern("00100"); step();
-    assert(modesStatus().running);
-    assert(modesStatus().error == 0.0f);
-    send("STOP\n"); expectStopped();
-
-    // Transient LINE_LOST while centered should cross straight over a short gap and recover.
-    startFollow();
-    setPattern("00000"); step();
-    assert(modesStatus().running);
-    expectSpeeds(BASE_SPEED, BASE_SPEED);
-    setPattern("00100"); step();
-    assert(modesStatus().running);
-    expectSpeeds(BASE_SPEED, BASE_SPEED);
-    send("STOP\n"); expectStopped();
-
-    // Brief intersection and invalid split glitches should continue and recover when line returns.
-    startFollow();
-    setPattern("11111"); step();
-    assert(modesStatus().running);
-    expectSpeeds(BASE_SPEED, BASE_SPEED);
-    setPattern("00100"); step();
-    assert(modesStatus().running);
-    send("STOP\n"); expectStopped();
-
-    startFollow();
-    setPattern("01010"); step();
-    assert(modesStatus().running);
-    setPattern("00100"); step();
-    assert(modesStatus().running);
-    send("STOP\n"); expectStopped();
+    // Recent two-frame directions survive crossing the center before losing the line.
+    for (const int direction : {-1, 1}) {
+        startFollow();
+        setPattern(direction < 0 ? "01000" : "00010"); followTick(); followTick();
+        setPattern("00100"); followTick();
+        setPattern("00000"); for (int i = 0; i < 4; ++i) followTick();
+        expectSpeeds(direction * rightSign * LINE_SEARCH_PWM_LIMIT, -direction * rightSign * LINE_SEARCH_PWM_LIMIT);
+        setPattern("00100"); followTick(); expectStopped();
+        for (unsigned i = 1; i < LINE_REACQUIRE_SAMPLES + 22; ++i) followTick();
+        assert(modesStatus().running && modesStatus().error == 0);
+        send("STOP\n"); expectStopped();
+        assert(Serial.output.find("RECOVERIES=1") != std::string::npos);
+    }
     startFollow();
     rawInputs[SENSOR_PINS[0]] = SENSOR_INPUT_MODE == SensorInputMode::ANALOG_AO ? 5000 : 2;
-    step(); assert(!modesStatus().running); expectStopped();
-    startFollow(); step(CONTROL_MAX_GAP_MS + 1);
+    followTick(); assert(!modesStatus().running); expectStopped();
+    assert(std::string(modesStatus().stopReason) == "SENSOR_FAULT");
+    startFollow(); step(LINE_STALE_US / 1000);
     assert(std::string(modesStatus().stopReason) == "STALE_CONTROL"); expectStopped();
-
-    // millis rollover must not stall the scheduler or extend manual timeout.
-    nowMs = ULONG_MAX - 100;
-    startFollow();
-    for (int i = 0; i < 10; ++i) step();
+    nowMs = (1ULL << 32) / 1000 - 100;
+    startFollow(); // Cross the 32-bit micros rollover.
     assert(modesStatus().running);
-    send("STOP\n"); expectStopped();
-
+    Serial.txAvailable = 0;
+    for (int i = 0; i < 8; ++i) followTick();
+    assert(modesStatus().running);
+    send("!"); expectStopped();
+    assert(!modesStatus().armed && Serial.output.rfind("TX_DROP=0") != Serial.output.rfind("TX_DROP="));
+    Serial.txAvailable = 1024;
+    send("\nLIMIT=500\n");
     startFollow();
-    unsigned long elapsed = CONTROL_PERIOD_MS; // startFollow includes first tick.
-    while (elapsed < LINE_FOLLOW_MAX_RUN_MS) {
-        if (elapsed == 1000) send("RUN\n"); // Cannot extend trial.
-        step(); elapsed += CONTROL_PERIOD_MS;
-    }
-    assert(!modesStatus().running && std::string(modesStatus().stopReason) == "RUN_TIMEOUT");
-    expectStopped();
+    while (modesStatus().running) { send("RUN\n"); followTick(); }
+    assert(std::string(modesStatus().stopReason) == "RUN_TIMEOUT"); expectStopped();
     startFollow(); send("DISARM\n"); expectStopped();
-    assert(!modesStatus().armed);
     warmup(); send("RUN\n");
     assert(!modesStatus().running && !modesStatus().armed);
-    startFollow(); send("!"); expectStopped(); send("\n");
+
+    if (BOOT_START_BUTTON_ENABLED) {
+        const auto pressBoot = [] {
+            rawInputs[BOOT_START_BUTTON_PIN] = LOW;
+            followTick(); step(MODE_BUTTON_DEBOUNCE_MS);
+        };
+        const auto releaseBoot = [] {
+            rawInputs[BOOT_START_BUTTON_PIN] = HIGH;
+            followTick(); step(MODE_BUTTON_DEBOUNCE_MS);
+        };
+        pressBoot(); releaseBoot();
+        assert(modesCountdownActive() && modesStatus().armed && !modesStatus().running);
+        send("STOP\n"); expectStopped();
+        step(BOOT_START_COUNTDOWN_MS);
+        assert(!modesCountdownActive() && !modesStatus().running);
+        setPattern("00000");
+        pressBoot(); releaseBoot();
+        assert(modesCountdownActive());
+        step(BOOT_START_COUNTDOWN_MS);
+        assert(!modesStatus().running && !modesStatus().armed); expectStopped();
+        setPattern("00100");
+        pressBoot(); releaseBoot();
+        for (unsigned t = 0; t < BOOT_START_COUNTDOWN_MS / FOLLOW_MS; ++t) followTick();
+        assert(!modesCountdownActive() && modesStatus().running); expectStopped();
+        for (int i = 0; i < 8; ++i) followTick();
+        rawInputs[BOOT_START_BUTTON_PIN] = LOW; followTick();
+        expectStopped();
+        assert(std::string(modesStatus().stopReason) == "BOOT_STOP");
+        releaseBoot();
+        assert(!modesCountdownActive() && !modesStatus().running && !modesStatus().armed);
+    }
     send("MODE MOTOR_TEST\nARM\nRIGHT -30\n"); expectSpeeds(0, -30);
     send("MODE SENSOR_TEST\n"); expectStopped();
 }

@@ -1,5 +1,6 @@
 #include "tuning.h"
 #include "config.h"
+#include "line_follow.h"
 #include <cerrno>
 #include <cmath>
 #include <cstdio>
@@ -11,24 +12,55 @@
 
 namespace {
 constexpr float MAX_GAIN = 1000.0f;
-constexpr TuningParameters defaults{PID_KP, PID_KD, BASE_SPEED};
+constexpr int MAX_TRIM = 30;
+constexpr TuningParameters defaults{PID_KP, PID_KD, BASE_SPEED, LINE_FOLLOW_STEER_TRIM,
+                                    {}, {}, LINE_FOLLOW_MAX_RUN_MS, MOTOR_TEST_TIMEOUT_MS};
 TuningParameters parameters = defaults;
+LineCalibration calibration = LINE_BENCH_CALIBRATION;
+bool calibrated = false;
+unsigned calibrationRevision = 0;
 static_assert(PID_KP <= MAX_GAIN && PID_KD <= MAX_GAIN, "Default gains exceed tuning range");
 
 bool validGain(float value) {
     return std::isfinite(value) && value >= 0 && value <= MAX_GAIN;
 }
 
+bool parseInt(const char*& input, long low, long high, int& value) {
+    char* end = nullptr;
+    errno = 0;
+    const long result = std::strtol(input, &end, 10);
+    if (end == input || errno == ERANGE || result < low || result > high) return false;
+    value = static_cast<int>(result);
+    input = end;
+    return true;
+}
+
+template <std::size_t N>
+bool readList(const char*& input, std::array<int, N>& values, int max) {
+    for (std::size_t i = 0; i < N; ++i) {
+        if (i != 0 && *input++ != ',') return false;
+        if (!parseInt(input, 0, max, values[i])) return false;
+    }
+    return true;
+}
+
+bool validFloors(const std::array<int, 4>& start, const std::array<int, 4>& sustain) {
+    for (unsigned i = 0; i < start.size(); ++i) {
+        const int limit = i % 2 == 0 ? MAX_SPEED : LINE_REVERSE_PWM_LIMIT;
+        if (sustain[i] < 0 || start[i] < sustain[i] || start[i] > limit) return false;
+    }
+    return true;
+}
+
 #ifdef ARDUINO_ARCH_ESP32
 constexpr char NVS_NAMESPACE[] = "hustroy-test";
-constexpr char NVS_KEY[] = "tuning-v1";
-// Store all values in one versioned NVS entry so SAVE commits them together.
-struct SavedTuning { float kp; float kd; int32_t speed; };
+constexpr char NVS_KEY[] = "line-v5-r1";
+struct SavedProfile { TuningParameters tuning; LineCalibration cal; uint32_t hasCal; };
 
 bool saveParameters() {
     Preferences flash;
     if (!flash.begin(NVS_NAMESPACE, false)) return false;
-    const SavedTuning saved{parameters.kp, parameters.kd, parameters.speed};
+    const SavedProfile saved{parameters, calibration, calibrated ? 1u : 0u};
     return flash.putBytes(NVS_KEY, &saved, sizeof(saved)) == sizeof(saved);
 }
 #endif
@@ -36,56 +68,126 @@ bool saveParameters() {
 
 void tuningInit() {
     parameters = defaults;
+    calibration = LINE_BENCH_CALIBRATION;
+    if (INVERT_LINE_SENSOR) { // The measured profile uses high ADC counts for black.
+        for (std::size_t i = 0; i < SENSOR_COUNT; ++i) {
+            calibration.white[i] = SENSOR_ADC_MAX - calibration.white[i];
+            calibration.black[i] = SENSOR_ADC_MAX - calibration.black[i];
+            calibration.floor[i] = SENSOR_ADC_MAX - calibration.floor[i];
+        }
+    }
+    calibrated = false;
+    ++calibrationRevision;
 #ifdef ARDUINO_ARCH_ESP32
     Preferences flash;
-    SavedTuning saved{};
-    if (flash.begin(NVS_NAMESPACE, true) && flash.getBytesLength(NVS_KEY) == sizeof(saved) &&
-        flash.getBytes(NVS_KEY, &saved, sizeof(saved)) == sizeof(saved) &&
-        validGain(saved.kp) && validGain(saved.kd) && saved.speed > 0 && saved.speed <= MAX_SPEED) {
-        parameters = {saved.kp, saved.kd, saved.speed};
+    SavedProfile saved{};
+    if (!flash.begin(NVS_NAMESPACE, true) || flash.getBytesLength(NVS_KEY) != sizeof(saved) ||
+        flash.getBytes(NVS_KEY, &saved, sizeof(saved)) != sizeof(saved)) return;
+    const auto& t = saved.tuning;
+    if (validGain(t.kp) && validGain(t.kd) && t.speed > 0 && t.speed <= MAX_SPEED &&
+        t.trim >= -MAX_TRIM && t.trim <= MAX_TRIM && t.limitMs >= 250 && t.limitMs <= LINE_FOLLOW_MAX_RUN_MS &&
+        t.pulseMs >= 100 && t.pulseMs <= MOTOR_TEST_TIMEOUT_MS && validFloors(t.start, t.sustain) &&
+        lineCalibrationValid(saved.cal, INVERT_LINE_SENSOR) && saved.hasCal <= 1) {
+        parameters = t;
+        calibration = saved.cal;
+        calibrated = saved.hasCal == 1;
     }
 #endif
 }
 
 const TuningParameters& tuningParameters() { return parameters; }
+const LineCalibration& lineCalibration() { return calibration; }
+bool lineCalibrationApplied() { return calibrated; }
+unsigned lineCalibrationRevision() { return calibrationRevision; }
 
 bool tuningCommand(const char* command, bool running, char* reply, std::size_t size) {
+    const auto respond = [reply, size](const char* message) { std::snprintf(reply, size, "%s", message); };
     if (std::strcmp(command, "GET") == 0) {
-        std::snprintf(reply, size, "KP=%.9g KI=%.9g KD=%.9g SPD=%d MAX=%d",
-                      parameters.kp, PID_KI, parameters.kd, parameters.speed, MAX_SPEED);
+        const auto& t = parameters;
+        std::snprintf(reply, size, "KP=%.9g KI=0 KD=%.9g SPD=%d MAX=%d TRIM=%d LIMIT=%lu PULSE=%lu "
+                      "FF=%d,%d,%d,%d/%d,%d,%d,%d",
+                      t.kp, t.kd, t.speed, MAX_SPEED, t.trim, t.limitMs, t.pulseMs,
+                      t.start[0], t.start[1], t.start[2], t.start[3],
+                      t.sustain[0], t.sustain[1], t.sustain[2], t.sustain[3]);
+        return true;
+    }
+    if (std::strcmp(command, "CAL?") == 0) {
+        const auto& c = calibration;
+        std::snprintf(reply, size, "CAL=%d WHITE=%d,%d,%d,%d,%d BLACK=%d,%d,%d,%d,%d FLOOR=%d,%d,%d,%d,%d "
+                      "X=%.5g,%.5g,%.5g,%.5g,%.5g",
+                      calibrated, c.white[0], c.white[1], c.white[2], c.white[3], c.white[4],
+                      c.black[0], c.black[1], c.black[2], c.black[3], c.black[4],
+                      c.floor[0], c.floor[1], c.floor[2], c.floor[3], c.floor[4],
+                      c.coordinates[0], c.coordinates[1], c.coordinates[2], c.coordinates[3], c.coordinates[4]);
         return true;
     }
     if (std::strcmp(command, "SAVE") == 0) {
-        const char* message = "ERR NVS unavailable";
-        if (running) message = "ERR STOP before SAVE";
+        if (running) respond("ERR STOP before SAVE");
 #ifdef ARDUINO_ARCH_ESP32
-        else message = saveParameters() ? "OK SAVED" : "ERR NVS write failed";
+        else respond(saveParameters() ? "OK SAVED" : "ERR NVS write failed");
+#else
+        else respond("ERR NVS unavailable");
 #endif
-        std::snprintf(reply, size, "%s", message);
         return true;
     }
-    char* end = nullptr;
-    errno = 0;
-    if (std::strncmp(command, "SPD=", 4) == 0) {
-        const char* value = command + 4;
-        const long speed = std::strtol(value, &end, 10);
-        if (end == value || *end || errno == ERANGE || speed < 1 || speed > MAX_SPEED) {
-            std::snprintf(reply, size, "ERR SPD must be an integer in 1..%d", MAX_SPEED);
-        } else {
-            parameters.speed = static_cast<int>(speed);
-            std::snprintf(reply, size, "OK SPD=%d", parameters.speed);
+    const char* input = std::strchr(command, '=');
+    if (!input) return false;
+    const auto is = [command, input](const char* name) {
+        const auto length = static_cast<std::size_t>(input - command);
+        return length == std::strlen(name) && std::strncmp(command, name, length) == 0;
+    };
+    const bool kp = is("KP"), kd = is("KD"), speed = is("SPD"), trim = is("TRIM"),
+               limit = is("LIMIT"), pulse = is("PULSE"), cal = is("CAL"), coords = is("X"), ff = is("FF");
+    if (!(kp || kd || speed || trim || limit || pulse || cal || coords || ff)) return false;
+    if (running) { respond("ERR STOP before changing settings"); return true; }
+    ++input;
+    if (kp || kd) {
+        char* end = nullptr;
+        errno = 0;
+        const float gain = std::strtof(input, &end);
+        if (end == input || *end || errno == ERANGE || !validGain(gain)) respond("ERR invalid gain");
+        else { (kp ? parameters.kp : parameters.kd) = gain; respond("OK gain"); }
+    } else if (cal) {
+        auto c = calibration;
+        if (readList(input, c.white, SENSOR_ADC_MAX) && *input++ == '/' &&
+            readList(input, c.black, SENSOR_ADC_MAX) && *input++ == '/' &&
+            readList(input, c.floor, SENSOR_ADC_MAX) && !*input && lineCalibrationValid(c, INVERT_LINE_SENSOR)) {
+            calibration = c;
+            calibrated = true;
+            ++calibrationRevision;
+            respond("OK CAL applied");
+        } else respond("ERR CAL needs valid white/black/floor ADC tuples");
+    } else if (coords) {
+        auto c = calibration;
+        bool valid = true;
+        for (std::size_t i = 0; i < SENSOR_COUNT && valid; ++i) {
+            char* end = nullptr;
+            errno = 0;
+            c.coordinates[i] = std::strtof(input, &end);
+            valid = end != input && errno != ERANGE && (i + 1 == SENSOR_COUNT ? !*end : *end == ',');
+            input = valid && *end ? end + 1 : end;
         }
-        return true;
-    }
-    const bool proportional = std::strncmp(command, "KP=", 3) == 0;
-    if (!proportional && std::strncmp(command, "KD=", 3) != 0) return false;
-    const char* value = command + 3;
-    const float gain = std::strtof(value, &end);
-    if (end == value || *end || errno == ERANGE || !validGain(gain)) {
-        std::snprintf(reply, size, "ERR %.2s must be finite in 0..%.0f", command, MAX_GAIN);
+        if (valid && lineCalibrationValid(c, INVERT_LINE_SENSOR)) { calibration = c; ++calibrationRevision; respond("OK X applied"); }
+        else respond("ERR X needs 5 increasing coordinates with both sides of zero");
+    } else if (ff) {
+        auto t = parameters;
+        if (readList(input, t.start, MAX_SPEED) && *input++ == '/' && readList(input, t.sustain, MAX_SPEED) &&
+            !*input && validFloors(t.start, t.sustain)) {
+            parameters = t;
+            respond("OK FF applied");
+        } else respond("ERR FF needs start/sustain duty tuples ordered L+,L-,R+,R-");
     } else {
-        (proportional ? parameters.kp : parameters.kd) = gain;
-        std::snprintf(reply, size, "OK %.2s=%.9g", command, gain);
+        int value = 0;
+        const long low = trim ? -MAX_TRIM : (limit ? 250 : (pulse ? 100 : 1));
+        const long high = trim ? MAX_TRIM : (limit ? LINE_FOLLOW_MAX_RUN_MS : (pulse ? MOTOR_TEST_TIMEOUT_MS : MAX_SPEED));
+        if (!parseInt(input, low, high, value) || *input) respond("ERR setting out of range");
+        else {
+            if (trim) parameters.trim = value;
+            else if (speed) parameters.speed = value;
+            else if (limit) parameters.limitMs = value;
+            else parameters.pulseMs = value;
+            respond("OK setting");
+        }
     }
     return true;
 }

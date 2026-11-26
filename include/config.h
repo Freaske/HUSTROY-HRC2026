@@ -12,7 +12,7 @@
 #include "sensors.h"
 
 
-constexpr char FIRMWARE_ID[] = "line-follow-pwm170-v2";
+constexpr char FIRMWARE_ID[] = "line-follow-v5-r2";
 constexpr uint8_t STATUS_LED_PIN = 2;
 // GPIO2: ON 100ms, OFF 100ms, ON 100ms, OFF 700ms. No delay().
 constexpr unsigned long STATUS_LED_PULSE_MS = 100;
@@ -22,14 +22,19 @@ static_assert(STATUS_LED_PULSE_MS > 0 &&
               "LED cycle must contain two pulses followed by a pause");
 
 // PWM 8 bit: 0..255. These team starting values are NOT calibrated RPM.
-constexpr int MAX_SPEED = 170;
-constexpr int BASE_SPEED = 170;
+constexpr int MAX_SPEED = 200;
+constexpr int BASE_SPEED = 60;
 
+<<<<<<< Updated upstream
 // User-requested manual motor bench profile; startup still STOPPED/DISARMED.
 // Channel A moved from D18/D13/D14 to D25/D26/D27: bench test showed channel A
 // works when driven from D19/D21/D22, but not from D18/D13/D14 (ESP32 pin or
 // jumper fault). This takes the pins proposed for ultrasonic (25/26) and the
 // mode button (27); re-plan those before enabling them.
+=======
+// User-requested motor profile; startup still STOPPED/DISARMED.
+// Pins match the current wiring table (PWMA=D25, AIN1=D26, AIN2=D27).
+>>>>>>> Stashed changes
 // Disconnect VM during upload; lift wheels before ARM. Set false for USB-only diagnostics.
 constexpr bool MOTOR_HARDWARE_ENABLED = true;
 constexpr int MOTOR_PWMA_PIN = 25;
@@ -43,7 +48,7 @@ constexpr int MOTOR_STBY_PIN = 23;
 // Logical left/right can be swapped without changing the driver's A/B wiring.
 // This provisional convention must be confirmed by Toan before enabling.
 constexpr bool LEFT_MOTOR_IS_CHANNEL_A = true;
-constexpr bool INVERT_LEFT_MOTOR = false;
+constexpr bool INVERT_LEFT_MOTOR = true;
 constexpr bool INVERT_RIGHT_MOTOR = false;
 
 constexpr uint8_t MOTOR_PWM_BITS = 8;
@@ -70,6 +75,7 @@ static_assert(MOTOR_PWM_FREQUENCY_HZ > 0 && MOTOR_PWM_FREQUENCY_HZ <= 100000,
 // AO inputs in physical left-to-right order. LINE_FOLLOW needs calibration and bias checks.
 constexpr bool SENSOR_HARDWARE_ENABLED = true;
 constexpr SensorInputMode SENSOR_INPUT_MODE = SensorInputMode::ANALOG_AO;
+<<<<<<< Updated upstream
 constexpr std::array<int, SENSOR_COUNT> SENSOR_PINS = {{32, 33, 34, 35, 36}};
 // Provisional thresholds from a stationary sweep of the team's black line.
 constexpr std::array<int, SENSOR_COUNT> SENSOR_ANALOG_THRESHOLDS = {{265, 291, 268, 325, 550}};
@@ -86,6 +92,11 @@ constexpr std::array<int, SENSOR_COUNT> SENSOR_PINS = {{32, 33, 34, 35, 36}};
 // (white ~160/182/177/222/1150-1620, tape ~740-1000/570-670/335-557/1950-2030/3450).
 // Sensor 3 margin is small; re-measure after levelling sensor height.
 constexpr std::array<int, SENSOR_COUNT> SENSOR_ANALOG_THRESHOLDS = {{450, 380, 260, 1100, 2500}};
+=======
+constexpr std::array<int, SENSOR_COUNT> SENSOR_PINS = {{33, 32, 34, 35, 36}};
+// Binary diagnostics use the thresholds captured from the pre-V5 ESP32.
+constexpr std::array<int, SENSOR_COUNT> SENSOR_ANALOG_THRESHOLDS = {{2326, 2322, 572, 2031, 2343}};
+>>>>>>> Stashed changes
 constexpr uint8_t SENSOR_ADC_BITS = 12;
 constexpr int SENSOR_ADC_MAX = (1 << SENSOR_ADC_BITS) - 1;
 // False: raw HIGH / above-threshold is provisionally active. True reverses it.
@@ -103,16 +114,15 @@ constexpr bool SENSOR_CALIBRATION_CONFIRMED = true;
 constexpr bool SENSOR_DISCONNECT_BIAS_CONFIRMED = true;
 constexpr bool INVERT_PID_ERROR = false;
 
-// Starting PD gains tuned for PWM 170 (dt = 20 ms). Ki/Kd use seconds.
-constexpr float PID_KP = 45.0f;
-constexpr float PID_KI = 0.0f;
-constexpr float PID_KD = 1.5f;
-constexpr float PID_INTEGRAL_LIMIT = 2.0f; // error * seconds
-constexpr float PID_CORRECTION_LIMIT = 85.0f; // duty units, further limited by wheel headroom
+// Initial V5 bench gains in duty per sensor pitch and duty per sensor pitch/s.
+constexpr float PID_KP = 34.0f;
+constexpr float PID_KD = 0.45f;
+constexpr int LINE_FOLLOW_STEER_TRIM = 4; // + boosts left / reduces right to counter leftward drift
 constexpr unsigned long CONTROL_PERIOD_MS = 20;
 constexpr unsigned long CONTROL_MAX_GAP_MS = 100;
 constexpr unsigned long DEBUG_LOG_INTERVAL_MS = 250;
 constexpr unsigned int LINE_START_VALID_SAMPLES = 3;
+<<<<<<< Updated upstream
 constexpr unsigned long LINE_FOLLOW_MAX_RUN_MS = 15000; // finite trial per RUN
 constexpr unsigned long LINE_LOST_GRACE_MS = 1500;
 constexpr unsigned long LINE_INVALID_GRACE_MS = 160;
@@ -132,13 +142,27 @@ constexpr unsigned long AUTO_START_DELAY_MS = 3000;
 
 constexpr bool MODE_BUTTON_ENABLED = false;
 constexpr int MODE_BUTTON_PIN = -1; // old proposal GPIO27 now used by AIN2; pick another pin
+=======
+constexpr unsigned long LINE_FOLLOW_MAX_RUN_MS = 120000; // 120 s lap budget per RUN
+
+constexpr bool MODE_BUTTON_ENABLED = false;
+constexpr int MODE_BUTTON_PIN = -1; // unassigned (GPIO27 is used by MOTOR_AIN2_PIN)
+>>>>>>> Stashed changes
 constexpr unsigned long MODE_BUTTON_DEBOUNCE_MS = 30;
+constexpr bool BOOT_START_BUTTON_ENABLED = true;
+constexpr int BOOT_START_BUTTON_PIN = 0; // Onboard ESP32 BOOT button (GPIO0, active LOW)
+constexpr unsigned long BOOT_START_COUNTDOWN_MS = 1500;
 // Reservations only, never initialized here. The optional test radios use onboard hardware.
+<<<<<<< Updated upstream
 constexpr int RESERVED_ULTRASONIC_TRIG_PIN = -1; // proposal: 25
 constexpr int RESERVED_ULTRASONIC_ECHO_PIN = -1; // proposal: 26; verify ECHO voltage
 // Reservations only, never initialized here. HC-SR04P/Bluetooth not implemented.
 constexpr int RESERVED_ULTRASONIC_TRIG_PIN = -1; // old proposal 25 now used by PWMA; re-plan
 constexpr int RESERVED_ULTRASONIC_ECHO_PIN = -1; // old proposal 26 now used by AIN1; verify ECHO voltage
+=======
+constexpr int RESERVED_ULTRASONIC_TRIG_PIN = -1; // unassigned (GPIO25 is used by MOTOR_PWMA_PIN)
+constexpr int RESERVED_ULTRASONIC_ECHO_PIN = -1; // unassigned (GPIO26 is used by MOTOR_AIN1_PIN)
+>>>>>>> Stashed changes
 
 static_assert(SENSOR_ADC_BITS == 12, "Threshold interface uses 12-bit ADC counts");
 static_assert(CONTROL_PERIOD_MS >= 5 && CONTROL_PERIOD_MS <= 100,
@@ -147,6 +171,7 @@ static_assert(CONTROL_MAX_GAP_MS > CONTROL_PERIOD_MS && CONTROL_MAX_GAP_MS <= 10
               "Control stale limit must exceed period and be at most 1000 ms");
 static_assert(DEBUG_LOG_INTERVAL_MS >= 100, "Do not flood the serial control loop");
 static_assert(LINE_START_VALID_SAMPLES > 0, "Require valid frames before RUN");
+<<<<<<< Updated upstream
 static_assert(LINE_FOLLOW_MAX_RUN_MS > 0 && LINE_FOLLOW_MAX_RUN_MS <= 30000,
               "Initial line trials must be finite: 1..30000 ms per RUN");
 static_assert(LINE_LOST_GRACE_MS > 0 && LINE_LOST_GRACE_MS <= 2000,
@@ -160,3 +185,13 @@ static_assert(AUTO_START_DELAY_MS >= 1000, "Give at least 1 s to put the robot d
 static_assert(PID_KP >= 0 && PID_KI >= 0 && PID_KD >= 0 &&
               PID_INTEGRAL_LIMIT > 0 && PID_CORRECTION_LIMIT > 0,
               "PID defaults must be finite positive limits and nonnegative gains");
+=======
+static_assert(LINE_FOLLOW_MAX_RUN_MS > 0 && LINE_FOLLOW_MAX_RUN_MS <= 120000,
+              "Initial line trials must be finite: 1..120000 ms per RUN");
+static_assert(PID_KP >= 0 && PID_KD >= 0, "PD defaults must be nonnegative");
+static_assert(LINE_FOLLOW_STEER_TRIM >= -30 && LINE_FOLLOW_STEER_TRIM <= 30,
+              "Steer trim must be -30..30");
+static_assert(!BOOT_START_BUTTON_ENABLED ||
+              (BOOT_START_BUTTON_PIN == 0 && BOOT_START_COUNTDOWN_MS >= 500 && BOOT_START_COUNTDOWN_MS <= 5000),
+              "Onboard BOOT start button must use GPIO0 with 500..5000 ms countdown");
+>>>>>>> Stashed changes

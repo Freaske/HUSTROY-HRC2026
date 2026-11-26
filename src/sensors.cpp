@@ -7,13 +7,10 @@
 // Phần diễn giải không gọi phần cứng nên kiểm thử được trên máy tính.
 // =============================================================================
 #include <Arduino.h>
-#include <algorithm>
 #include "sensors.h"
 #include "hardware_config.h"
 
 namespace {
-constexpr int ANALOG_AMBIGUITY_MARGIN = 8; // ADC counts above or below the calibrated threshold.
-constexpr int ANALOG_DOMINANT_PEAK_MIN_MARGIN = 24;
 bool ready = false;
 }
 
@@ -75,35 +72,6 @@ SensorFrame interpretSensorRaw(const std::array<int, SENSOR_COUNT>& raw,
         active[i] = invert ? !high : high;
     }
     frame = analyzeSensorPattern(active);
-    if (mode == SensorInputMode::ANALOG_AO && !frame.valid) {
-        // A weak, separate patch can flicker across its threshold. Recover only
-        // if a single contiguous line remains clearly above the noise margin.
-        std::array<bool, SENSOR_COUNT> confident{};
-        std::array<int, SENSOR_COUNT> signedDistance{};
-        int peakMargin = raw[0] - thresholds[0];
-        if (invert) peakMargin = -peakMargin;
-        for (std::size_t i = 0; i < SENSOR_COUNT; ++i) {
-            const int distance = raw[i] - thresholds[i];
-            signedDistance[i] = invert ? -distance : distance;
-            peakMargin = std::max(peakMargin, signedDistance[i]);
-            confident[i] = signedDistance[i] >= ANALOG_AMBIGUITY_MARGIN;
-        }
-        const auto candidate = analyzeSensorPattern(confident);
-        if (candidate.valid && candidate.state == LineState::LINE_DETECTED) {
-            frame = candidate;
-        } else if (peakMargin >= ANALOG_DOMINANT_PEAK_MIN_MARGIN) {
-            // Reject motor-load baseline shift when one contiguous peak dominates.
-            const int cutoff = std::max(ANALOG_AMBIGUITY_MARGIN, peakMargin / 2);
-            std::array<bool, SENSOR_COUNT> dominant{};
-            for (std::size_t i = 0; i < SENSOR_COUNT; ++i) {
-                dominant[i] = signedDistance[i] >= cutoff;
-            }
-            const auto dominantCandidate = analyzeSensorPattern(dominant);
-            if (dominantCandidate.valid && dominantCandidate.state == LineState::LINE_DETECTED) {
-                frame = dominantCandidate;
-            }
-        }
-    }
     frame.raw = raw;
     frame.rawAvailable = true;
     if (!calibrationConfirmed) {
@@ -118,12 +86,30 @@ SensorFrame interpretSensorRaw(const std::array<int, SENSOR_COUNT>& raw,
 // Cấu hình 5 chân cảm biến (INPUT, không pull-up; ADC 12 bit, suy hao 11 dB).
 // Nếu cấu hình trong config.h sai/tắt thì in cảnh báo và không đọc cảm biến.
 void sensorsInit() {
+#ifdef ARDUINO_BOARD
+    constexpr const char* board = ARDUINO_BOARD;
+#else
+    constexpr const char* board = "N/A";
+#endif
+    const bool analog = SENSOR_INPUT_MODE == SensorInputMode::ANALOG_AO;
+    const bool digital = SENSOR_INPUT_MODE == SensorInputMode::DIGITAL_DO;
+    Serial.printf("SENSORS BOARD=%s INPUT=%s S1=GPIO%d S2=GPIO%d S3=GPIO%d S4=GPIO%d S5=GPIO%d",
+                  board, analog ? "ANALOG_AO" : digital ? "DIGITAL_DO" : "UNCONFIGURED",
+                  SENSOR_PINS[0], SENSOR_PINS[1], SENSOR_PINS[2], SENSOR_PINS[3], SENSOR_PINS[4]);
+    if (analog) {
+        Serial.printf(" ADC=%u-bit ATTEN=11dB ACTIVE_IF=RAW%sTHR\n",
+                      static_cast<unsigned int>(SENSOR_ADC_BITS), INVERT_LINE_SENSOR ? "<" : ">=");
+    } else if (digital) {
+        Serial.printf(" THR=N/A ACTIVE_IF=DIG=%s\n", INVERT_LINE_SENSOR ? "LOW" : "HIGH");
+    } else {
+        Serial.println("");
+    }
     if (!SENSOR_HARDWARE_ENABLED || !hardwareSensorsValid()) {
         Serial.println("SENSORS DISABLED: confirm AO/DO, GPIOs and safe signal voltages in config.h.");
         return;
     }
     for (int pin : SENSOR_PINS) pinMode(pin, INPUT); // No phantom pullups on GPIO34..39.
-    if (SENSOR_INPUT_MODE == SensorInputMode::ANALOG_AO) {
+    if (analog) {
         analogReadResolution(SENSOR_ADC_BITS);
         for (int pin : SENSOR_PINS) analogSetPinAttenuation(pin, ADC_11db);
     }

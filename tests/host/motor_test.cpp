@@ -6,6 +6,7 @@
 #include "config.h"
 #include "motor.h"
 #include "modes.h"
+#include "line_follow.h"
 #include "pid.h"
 #include <cmath>
 #include <limits>
@@ -24,6 +25,7 @@ int failAttachAt = -1;
 int failWriteAt = -1;
 std::map<int, int> rawInputs;
 
+unsigned long micros() { return nowMs * 1000; }
 unsigned long millis() { return nowMs; }
 int gpio_set_level(int pin, unsigned int value) {
     assert(pin >= 0 && pin <= 33);
@@ -120,6 +122,8 @@ int main(int argc, char** argv) {
 
     if (scenario == "logic") {
         runPureLogicChecks();
+        tuningInit();
+        runLineV5LogicChecks();
         std::cout << "PASS: logic (all 32 patterns, normalization, PID and mixing)\n";
         return 0;
     }

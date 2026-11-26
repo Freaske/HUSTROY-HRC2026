@@ -42,5 +42,9 @@ void modesDisarm(const char* reason);
 void modesStop(const char* reason);
 // Đọc trạng thái hiện tại (chỉ đọc).
 const RobotStatus& modesStatus();
+<<<<<<< Updated upstream
 // Tên chuỗi của chế độ (để in Serial).
+=======
+bool modesCountdownActive();
+>>>>>>> Stashed changes
 const char* modeName(RobotMode mode);

@@ -40,7 +40,7 @@ def build(folder, changes, expect_failure=False,
                "-I", str(ROOT / "tests/host"), "-I", str(ROOT / "include"),
                str(ROOT / "src/motor.cpp"), str(ROOT / "src/main.cpp"),
                str(ROOT / "src/sensors.cpp"), str(ROOT / "src/pid.cpp"), str(ROOT / "src/modes.cpp"),
-               str(ROOT / "src/tuning.cpp"), str(ROOT / "src/test_link.cpp"),
+               str(ROOT / "src/tuning.cpp"), str(ROOT / "src/line_follow.cpp"), str(ROOT / "src/test_link.cpp"),
                str(ROOT / "tests/host/motor_test.cpp"), "-o", str(folder / "test")]
     result = subprocess.run(command, text=True, capture_output=True)
     if expect_failure:
@@ -94,9 +94,13 @@ def main():
                          "SENSOR_ANALOG_THRESHOLDS": "{{2048,2048,2048,2048,2048}}",
                          "SENSOR_CALIBRATION_CONFIRMED": "true",
                          "SENSOR_DISCONNECT_BIAS_CONFIRMED": "true",
+<<<<<<< Updated upstream
                          # Classic latched-stop behaviour; auto modes are tested below.
                          "LINE_AUTO_RESUME": "false",
                          "AUTO_START_ON_BOOT": "false"}
+=======
+                         "LINE_FOLLOW_STEER_TRIM": "0"}
+>>>>>>> Stashed changes
         for name, changes in [
             ("analog", {}),
             ("digital", {"SENSOR_INPUT_MODE": "SensorInputMode::DIGITAL_DO",
