@@ -35,6 +35,8 @@ FollowOutput followOutput;
 unsigned long lastControlAt = 0;
 unsigned long lastLogAt = 0;
 unsigned long motionStartedAt = 0;
+unsigned long motorTestDuration = 0;
+bool bootBenchRunning = false;
 unsigned validSamples = 0;
 unsigned lastLineTick = 0;
 unsigned nextLineTick = 0;
@@ -159,10 +161,8 @@ bool buttonCandidate = true;
 bool buttonStable = true;
 bool buttonReleased = false;
 unsigned long buttonChangedAt = 0;
-<<<<<<< Updated upstream
 bool autoStartPending = false;
 unsigned long bootAt = 0;
-=======
 bool bootCandidate = true;
 bool bootButtonInitialized = false;
 bool bootStable = true;
@@ -171,7 +171,6 @@ bool bootInhibitUntilRelease = false;
 unsigned long bootChangedAt = 0;
 bool bootCountdownActive = false;
 unsigned long bootCountdownStartedAt = 0;
->>>>>>> Stashed changes
 
 bool rightLineIsCentered(const SensorFrame& frame) {
     if (!frame.rawAvailable || !frame.active[CENTER_SENSOR] || frame.activeCount > 3) return false;
@@ -194,38 +193,20 @@ bool rightLineIsCentered(const SensorFrame& frame) {
     return true;
 }
 
-// Tạm dừng dò line (chỉ dùng khi LINE_AUTO_RESUME): tắt motor nhưng vẫn giữ
-// RUNNING/ARMED để tự chạy lại khi thấy line ổn định. In lý do một lần.
-void pauseLineFollow(const char* reason) {
-    if (status.paused) return;
-    motorStop();
-    status.paused = true;
-    status.leftCommand = status.rightCommand = 0;
-    status.error = status.correction = 0;
-    controller.reset();
-    Serial.printf("PAUSE: %s; motors stopped, waiting for stable line.\n", reason);
-}
-
 // In danh sách lệnh Serial (lệnh HELP).
 void printHelp() {
     logLine("HELP | STATUS | ARM | STOP | DISARM | ! (disarm immediately, then Enter)");
     logLine("MODE MOTOR_TEST | MODE SENSOR_TEST | MODE LINE_FOLLOW | MODE RIGHT_LINE");
     logLine("MOTOR_TEST: ARM, then LEFT n | RIGHT n | BOTH n | SET left right");
+    if (BOOT_BENCH_PROFILE) logf("BOOT: press and release for BOTH %d, %lu ms. Press again to stop.\n",
+                                BOOT_BENCH_PWM, BOOT_BENCH_RUN_MS);
     logLine("Signed duty: positive=forward, negative=reverse, zero=coast. LEFT/RIGHT stop the other wheel.");
     logLine("LINE_FOLLOW: CAL=white/black/floor, center line, ARM, then GO. Mode changes DISARM.");
     logf("RIGHT_LINE: ARM, center the line, then RUN. Right PWM %d, up to %lu ms.\n",
                   RIGHT_LINE_TEST_PWM, RIGHT_LINE_TEST_MAX_RUN_MS);
-<<<<<<< Updated upstream
-    Serial.println("TUNING: KP=<gain> | KD=<gain> | SPD=<duty> | GET | SAVE (stopped) | GO (RUN)");
-    Serial.println(LINE_AUTO_RESUME ?
-                   "LINE_FOLLOW: ARM, then RUN. Line lost = pause, line found = resume. Mode changes always DISARM." :
-                   "LINE_FOLLOW: ARM, wait for stable line, then RUN. Mode changes always DISARM.");
-    Serial.printf("Duty range -%d..%d/255, manual timeout=%lu ms, RUN limit=%lu ms.\n",
-=======
     logLine("TUNING while stopped: KP= | KD= | SPD= | TRIM= | LIMIT= | PULSE= | FF= | X= | CAL? | GET | SAVE");
     logLine("TRACE=1/0 samples at 50 Hz in sensor and bench modes. LAST shows latest run.");
     logf("Duty range -%d..%d/255, manual timeout=%lu ms, RUN limit=%lu ms.\n",
->>>>>>> Stashed changes
                   MAX_SPEED, MAX_SPEED, MOTOR_TEST_TIMEOUT_MS, LINE_FOLLOW_MAX_RUN_MS);
 }
 
@@ -283,24 +264,11 @@ void printSensorDiagnostic(const SensorFrame& frame) {
 void printSensors() {
     const auto& frame = status.sensors;
     printSensorSample(frame);
-<<<<<<< Updated upstream
-    Serial.printf(" STATE=%s DIR=%s POS=%s%.2f ERR=%.2f CORR=%.2f L=%d R=%d RUN=%d\n",
-// In một dòng log cảm biến + PID: giá trị thô, bit, trạng thái, vị trí,
-// sai số, hiệu chỉnh, lệnh motor trái/phải. Gọi định kỳ ngoài MOTOR_TEST.
-void printSensors() {
-    const auto& frame = status.sensors;
-    Serial.printf("RAW=[%d,%d,%d,%d,%d] BITS=%d%d%d%d%d RAW_OK=%d VALID=%d ALL=%d ",
-                  frame.raw[0], frame.raw[1], frame.raw[2], frame.raw[3], frame.raw[4],
-                  frame.active[0], frame.active[1], frame.active[2], frame.active[3], frame.active[4],
-                  frame.rawAvailable, frame.valid, frame.allActive);
-    Serial.printf("STATE=%s DIR=%s POS=%s%.2f ERR=%.2f CORR=%.2f L=%d R=%d RUN=%d PAUSE=%d\n",
-=======
     logf(" STATE=%s DIR=%s POS=%s%.2f ERR=%.2f CORR=%.2f L=%d R=%d RUN=%d\n",
->>>>>>> Stashed changes
                   lineStateName(frame.state), lineDirectionName(frame.direction),
                   frame.valid && frame.state == LineState::LINE_DETECTED ? "" : "UNUSABLE:",
                   frame.position, status.error, status.correction,
-                  status.leftCommand, status.rightCommand, status.running, status.paused);
+                  status.leftCommand, status.rightCommand, status.running);
 }
 
 void printTrace() {
@@ -355,15 +323,10 @@ void checkMotionDeadline(unsigned long now) {
     if (!motorIsReady()) {
         modesDisarm("MOTOR_FAULT");
     } else if (status.mode == RobotMode::MOTOR_TEST &&
-               now - motionStartedAt >= tuningParameters().pulseMs) {
+               now - motionStartedAt >= motorTestDuration) {
         modesDisarm("TIMEOUT");
-<<<<<<< Updated upstream
-    } else if (!LINE_AUTO_RESUME && status.mode == RobotMode::LINE_FOLLOW &&
-               now - motionStartedAt >= LINE_FOLLOW_MAX_RUN_MS) {
-=======
     } else if (status.mode == RobotMode::LINE_FOLLOW &&
                now - motionStartedAt >= tuningParameters().limitMs) {
->>>>>>> Stashed changes
         modesDisarm("RUN_TIMEOUT");
     } else if (status.mode == RobotMode::RIGHT_LINE &&
                now - motionStartedAt >= RIGHT_LINE_TEST_MAX_RUN_MS) {
@@ -384,6 +347,23 @@ bool parseTestSpeed(const char* token, int& speed) {
     if (errno == ERANGE || end == token || *end || value < -MAX_SPEED || value > MAX_SPEED) return false;
     speed = static_cast<int>(value);
     return true;
+}
+
+void startMotorTest(int left, int right, unsigned long duration, bool fromBoot) {
+    if (!motorIsReady() || !status.armed) {
+        modesDisarm("MOTOR_NOT_ARMED");
+        logLine("BLOCKED: motor hardware disabled/fault or DISARMED; ARM is required.");
+        return;
+    }
+    status.leftCommand = left;
+    status.rightCommand = right;
+    motorTestDuration = duration;
+    bootBenchRunning = fromBoot;
+    motionStartedAt = millis();
+    setMotorSpeeds(left, right);
+    status.running = motorIsReady();
+    if (!status.running) modesDisarm("MOTOR_FAULT");
+    else logf("TEST: left=%d right=%d; TIMEOUT in %lu ms.\n", left, right, duration);
 }
 
 // Tách và thực hiện một dòng lệnh Serial (STOP, DISARM, HELP, STATUS, ARM,
@@ -468,19 +448,11 @@ void processCommand(char* line, unsigned long now) {
         logLine("STOP: zero command (coast).");
         return;
     }
-    if (!motorIsReady() || !status.armed) {
-        modesDisarm("MOTOR_NOT_ARMED");
-        logLine("BLOCKED: motor hardware disabled/fault or DISARMED; ARM is required.");
+    if (bootBenchRunning) {
+        logLine("BLOCKED: STOP before changing a BOOT bench pulse.");
         return;
     }
-    status.leftCommand = leftSpeed;
-    status.rightCommand = rightSpeed;
-    setMotorSpeeds(status.leftCommand, status.rightCommand);
-    status.running = motorIsReady();
-    motionStartedAt = now;
-    if (!status.running) modesDisarm("MOTOR_FAULT");
-    else logf("TEST: left=%d right=%d; TIMEOUT in %lu ms.\n",
-                       status.leftCommand, status.rightCommand, tuningParameters().pulseMs);
+    startMotorTest(leftSpeed, rightSpeed, tuningParameters().pulseMs, false);
 }
 
 // Đọc từng ký tự Serial (tối đa 64 ký tự mỗi lần): '!' dừng khẩn ngay,
@@ -491,7 +463,7 @@ void pollSerial() {
         const char c = static_cast<char>(Serial.read());
         if (autoStartPending) {
             autoStartPending = false; // Operator is at the keyboard: never auto-start.
-            Serial.println("AUTO START cancelled by Serial input.");
+            logLine("AUTO START cancelled by Serial input.");
         }
         if (c == '!') {
             modesDisarm("EMERGENCY_COMMAND");
@@ -551,19 +523,21 @@ void pollBootButton(unsigned long now) {
         } else if (bootInhibitUntilRelease) {
             bootInhibitUntilRelease = false;
         } else if (bootArmedForStart) {
-            // Released after an idle press: select LINE_FOLLOW, ARM, and start 1.5 s countdown.
+            // A full button press and release authorizes one countdown.
             bootArmedForStart = false;
-            modesSelect(RobotMode::LINE_FOLLOW, now);
+            modesSelect(BOOT_BENCH_PROFILE ? RobotMode::MOTOR_TEST : RobotMode::LINE_FOLLOW, now);
             if (modesArm()) {
                 bootCountdownActive = true;
                 bootCountdownStartedAt = now;
-                logf("BOOT_START: countdown %lu ms; keep line centered.\n", BOOT_START_COUNTDOWN_MS);
+                logf("BOOT_START: countdown %lu ms; %s.\n", BOOT_START_COUNTDOWN_MS,
+                     BOOT_BENCH_PROFILE ? "bench pulse" : "keep line centered");
             }
         }
     }
     if (bootCountdownActive && now - bootCountdownStartedAt >= BOOT_START_COUNTDOWN_MS) {
         bootCountdownActive = false;
-        modesRun(now);
+        if (BOOT_BENCH_PROFILE) startMotorTest(BOOT_BENCH_PWM, BOOT_BENCH_PWM, BOOT_BENCH_RUN_MS, true);
+        else modesRun(now);
     }
 }
 } // namespace
@@ -588,6 +562,8 @@ void modesStop(const char* reason) {
     const unsigned stopped = micros();
     bootCountdownActive = false;
     bootArmedForStart = false;
+    bootBenchRunning = false;
+    autoStartPending = false;
     motorStop();
     if (BOOT_START_BUTTON_ENABLED && bootButtonInitialized && digitalRead(BOOT_START_BUTTON_PIN) == LOW)
         bootInhibitUntilRelease = true;
@@ -661,25 +637,17 @@ bool modesRun(unsigned long now) {
         return false;
     }
     const bool rightLineMode = status.mode == RobotMode::RIGHT_LINE;
-    const bool lineReady = rightLineMode ? rightLineIsCentered(status.sensors) :
-        status.mode == RobotMode::LINE_FOLLOW && SENSOR_CALIBRATION_CONFIRMED &&
+    const bool lineModeReady = status.mode == RobotMode::LINE_FOLLOW && SENSOR_CALIBRATION_CONFIRMED &&
         SENSOR_DISCONNECT_BIAS_CONFIRMED &&
-        (SENSOR_INPUT_MODE != SensorInputMode::ANALOG_AO || lineCalibrationApplied()) &&
-        sampleRevision == lineCalibrationRevision() && lineStartReady();
-    if (!status.armed || !motorIsReady() || !sensorsIsReady() || !lineReady ||
-        now - status.sensors.sampledAt > CONTROL_MAX_GAP_MS || validSamples < LINE_START_VALID_SAMPLES) {
-<<<<<<< Updated upstream
-        const unsigned int heldSamples = validSamples;
-    // Auto-resume starts PAUSED, so it need not be on the line yet: it waits for one.
-    const bool lineReady = LINE_AUTO_RESUME ||
-        (status.sensors.valid && status.sensors.state == LineState::LINE_DETECTED &&
-         now - status.sensors.sampledAt <= CONTROL_MAX_GAP_MS && validSamples >= LINE_START_VALID_SAMPLES);
-    if (!status.armed || status.mode != RobotMode::LINE_FOLLOW || !motorIsReady() || !sensorsIsReady() ||
-        !SENSOR_CALIBRATION_CONFIRMED || !SENSOR_DISCONNECT_BIAS_CONFIRMED || !lineReady ||
-        forwardCorrectionLimit(BASE_SPEED, MAX_SPEED, PID_CORRECTION_LIMIT) <= 0) {
-=======
+        (SENSOR_INPUT_MODE != SensorInputMode::ANALOG_AO || lineCalibrationApplied());
+    const bool waitingAllowed = !rightLineMode && LINE_AUTO_RESUME;
+    const bool readyToDrive = now - status.sensors.sampledAt <= CONTROL_MAX_GAP_MS &&
+        validSamples >= LINE_START_VALID_SAMPLES &&
+        (rightLineMode ? rightLineIsCentered(status.sensors) :
+         sampleRevision == lineCalibrationRevision() && lineStartReady());
+    if (!status.armed || !motorIsReady() || !sensorsIsReady() || (!rightLineMode && !lineModeReady) ||
+        (!waitingAllowed && !readyToDrive)) {
         const unsigned heldSamples = validSamples;
->>>>>>> Stashed changes
         modesDisarm("RUN_BLOCKED");
         logf("BLOCKED: %s needs ARM and stable line (LINE_CAL=%d CONF=%.2f SAMPLES=%u/%u).\n",
              modeName(status.mode), lineCalibrationApplied(), observation.confidence, heldSamples, LINE_START_VALID_SAMPLES);
@@ -694,16 +662,9 @@ bool modesRun(unsigned long now) {
         nextLineTick = lastLineTick + LINE_PERIOD_US;
     }
     status.running = true;
-<<<<<<< Updated upstream
-    status.paused = LINE_AUTO_RESUME;
-    motionStartedAt = lastControlAt = now;
-    Serial.println(LINE_AUTO_RESUME ?
-                   "RUN (auto-resume): motors run while a stable line is seen. STOP or ! to end." :
-                   "RUN armed; first wheel command occurs at the next control tick.");
-=======
+    status.paused = waitingAllowed;
     motionStartedAt = lastControlAt = millis();
     logLine("RUN armed; first wheel command occurs at the next control tick.");
->>>>>>> Stashed changes
     return true;
 }
 
@@ -719,14 +680,6 @@ void modesInit(unsigned long now) {
         buttonReleased = buttonStable; // A held button at boot must be released first.
         buttonChangedAt = now;
     }
-<<<<<<< Updated upstream
-    Serial.println("HUSTROY integrated firmware: startup STOPPED and DISARMED. Type HELP.");
-    bootAt = now;
-    autoStartPending = AUTO_START_ON_BOOT;
-    if (autoStartPending) {
-        Serial.printf("AUTO START in %lu ms (LINE_FOLLOW). Send any key to cancel.\n", AUTO_START_DELAY_MS);
-    }
-=======
     if (BOOT_START_BUTTON_ENABLED) {
         pinMode(BOOT_START_BUTTON_PIN, INPUT_PULLUP);
         bootButtonInitialized = true;
@@ -735,8 +688,12 @@ void modesInit(unsigned long now) {
         bootChangedAt = now;
         bootCountdownActive = false;
     }
+    bootAt = now;
+    autoStartPending = AUTO_START_ON_BOOT && !BOOT_BENCH_PROFILE;
+    if (autoStartPending) logf("AUTO START in %lu ms (LINE_FOLLOW). Send any key to cancel.\n", AUTO_START_DELAY_MS);
     logLine("HUSTROY integrated firmware: startup STOPPED and DISARMED. Type HELP.");
->>>>>>> Stashed changes
+    if (BOOT_BENCH_PROFILE) logf("BOOT BENCH: BOTH %d for %lu ms after a press and release.\n",
+                                BOOT_BENCH_PWM, BOOT_BENCH_RUN_MS);
 }
 
 // Một vòng cập nhật (gọi trong loop()): tự khởi động nếu đến giờ, kiểm tra
@@ -744,14 +701,14 @@ void modesInit(unsigned long now) {
 // tính PID -> đặt tốc độ motor hoặc tạm dừng/dừng khi mất line; xử lý Serial
 // và in log cảm biến định kỳ.
 void modesUpdate(unsigned long now) {
+    checkMotionDeadline(now);
+    pollSerial(); // Process STOP before issuing the next motor command.
+    now = millis();
     if (autoStartPending && now - bootAt >= AUTO_START_DELAY_MS) {
         autoStartPending = false; // One attempt only; after STOP/! it never restarts itself.
         modesSelect(RobotMode::LINE_FOLLOW, now);
         if (modesArm()) modesRun(now);
     }
-    checkMotionDeadline(now);
-    pollSerial(); // Process STOP before issuing the next motor command.
-    now = millis();
     pollButton(now);
     pollBootButton(now);
     const unsigned sampled = micros();
@@ -782,90 +739,6 @@ void modesUpdate(unsigned long now) {
                 motorRunRightLineTest();
                 if (!motorIsReady()) modesDisarm("MOTOR_FAULT");
             }
-<<<<<<< Updated upstream
-        } else if (status.mode == RobotMode::LINE_FOLLOW && status.running) {
-            if (!lineDetected) {
-                if (!status.sensors.rawAvailable) {
-                    stopForLine(lineStateName(status.sensors.state), now);
-                } else {
-                    if (!lineRecovering) {
-                        lineRecovering = true;
-                        lineRecoveryStartedAt = now;
-                        controller.reset();
-                    }
-                    const unsigned long limitMs =
-                        status.sensors.state == LineState::LINE_LOST ? LINE_LOST_GRACE_MS :
-                        status.sensors.state == LineState::INTERSECTION ? LINE_INTERSECTION_STOP_MS :
-                        LINE_INVALID_GRACE_MS;
-                    if (now - lineRecoveryStartedAt >= limitMs) {
-                        stopForLine(lineStateName(status.sensors.state), now);
-                    } else {
-                        const auto& tuning = tuningParameters();
-                        if (status.sensors.state == LineState::LINE_LOST && std::abs(lastValidError) >= 0.25f) {
-                            const int pivotSpeed = std::clamp(tuning.speed, 1, MAX_SPEED);
-                            const bool turnRight = lastValidError > 0.0f;
-                            const int left = turnRight ? pivotSpeed : -pivotSpeed;
-                            const int right = turnRight ? -pivotSpeed : pivotSpeed;
-                            status.error = lastValidError;
-                            status.correction = turnRight ? static_cast<float>(pivotSpeed) : -static_cast<float>(pivotSpeed);
-                            status.leftCommand = left;
-                            status.rightCommand = right;
-                            setMotorSpeeds(left, right);
-                            if (!motorIsReady()) modesDisarm("MOTOR_FAULT");
-                        } else {
-                            const float corrLimit = forwardCorrectionLimit(tuning.speed, MAX_SPEED, PID_CORRECTION_LIMIT);
-                            float recoveryCorrection = 0.0f;
-                            if (status.sensors.state == LineState::INTERSECTION) {
-                                recoveryCorrection = 0.0f;
-                            } else if (status.sensors.state != LineState::LINE_LOST && std::abs(lastValidError) >= 0.25f) {
-                                recoveryCorrection = std::clamp(tuning.kp * lastValidError, -corrLimit, corrLimit);
-                            }
-                            const WheelSpeeds speeds = mixForwardSpeeds(tuning.speed, recoveryCorrection, MAX_SPEED);
-                            if (!speeds.valid) {
-                                modesDisarm("PID_INVALID");
-                            } else {
-                                status.error = status.sensors.state == LineState::INTERSECTION ? 0.0f : lastValidError;
-                                status.correction = recoveryCorrection;
-                                status.leftCommand = speeds.left;
-                                status.rightCommand = speeds.right;
-                                setMotorSpeeds(speeds.left, speeds.right);
-                                if (!motorIsReady()) modesDisarm("MOTOR_FAULT");
-                            }
-                        }
-                    }
-                }
-            } else {
-                lineRecovering = false;
-        if (status.mode == RobotMode::LINE_FOLLOW && status.running) {
-            const bool onLine = status.sensors.valid && status.sensors.state == LineState::LINE_DETECTED;
-            if (!onLine && (!LINE_AUTO_RESUME || !status.sensors.rawAvailable)) {
-                // Latched stop; raw/ADC faults always latch even with auto-resume.
-                modesDisarm(status.sensors.rawAvailable ? lineStateName(status.sensors.state) : "SENSOR_FAULT");
-            } else if (!onLine) {
-                pauseLineFollow(lineStateName(status.sensors.state));
-            } else if (!status.paused || validSamples >= LINE_START_VALID_SAMPLES) {
-                if (status.paused) {
-                    status.paused = false;
-                    controller.reset();
-                    Serial.println("RESUME: stable line found, motors running.");
-                }
-                status.error = INVERT_PID_ERROR ? -status.sensors.position : status.sensors.position;
-                lastValidError = status.error;
-                const auto& tuning = tuningParameters();
-                controller.configure({tuning.kp, PID_KI, tuning.kd, PID_INTEGRAL_LIMIT,
-                                      forwardCorrectionLimit(tuning.speed, MAX_SPEED, PID_CORRECTION_LIMIT)});
-                const PidResult pid = controller.update(status.error, static_cast<float>(elapsed) / 1000.0f);
-                const WheelSpeeds speeds = mixForwardSpeeds(tuning.speed, pid.output, MAX_SPEED);
-                if (!pid.valid || !speeds.valid) modesDisarm("PID_INVALID");
-                else {
-                    status.correction = pid.output;
-                    status.leftCommand = speeds.left;
-                    status.rightCommand = speeds.right;
-                    setMotorSpeeds(speeds.left, speeds.right);
-                    if (!motorIsReady()) modesDisarm("MOTOR_FAULT");
-                }
-            }
-=======
         } else if (following && status.running) {
             const unsigned period = sampled - lastLineTick;
             stats.advance(period);
@@ -875,7 +748,17 @@ void modesUpdate(unsigned long now) {
             stats.minPeriod = std::min(stats.minPeriod, period);
             stats.maxPeriod = std::max(stats.maxPeriod, period);
             stats.maxAdc = std::max(stats.maxAdc, adcUs);
-            followOutput = follower.update(observation, tuningParameters(), sampled, period);
+            if (LINE_AUTO_RESUME && observation.reading != LineReading::Invalid &&
+                (observation.reading != LineReading::Position ||
+                 (status.paused && validSamples < LINE_START_VALID_SAMPLES))) {
+                if (!status.paused) follower = LineFollower{};
+                status.paused = true;
+                followOutput = FollowOutput{};
+                followOutput.state = FollowState::Recover;
+            } else {
+                status.paused = false;
+                followOutput = follower.update(observation, tuningParameters(), sampled, period);
+            }
             status.error = followOutput.error;
             status.correction = followOutput.correction;
             status.leftCommand = followOutput.left;
@@ -888,7 +771,6 @@ void modesUpdate(unsigned long now) {
             if (work >= nextLineTick - sampled) ++stats.late;
             if (followOutput.fault) stopForLine(followOutput.fault, now);
             else if (!motorIsReady()) modesDisarm("MOTOR_FAULT");
->>>>>>> Stashed changes
         }
     }
     const unsigned long logNow = millis();

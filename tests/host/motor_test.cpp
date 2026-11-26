@@ -130,6 +130,7 @@ int main(int argc, char** argv) {
     if (scenario.rfind("system-", 0) == 0) {
         if (SENSOR_HARDWARE_ENABLED) setPattern("00100");
         if (MODE_BUTTON_ENABLED) rawInputs[MODE_BUTTON_PIN] = scenario == "system-held-button" ? LOW : HIGH;
+        if (scenario == "system-boot-bench") rawInputs[BOOT_START_BUTTON_PIN] = LOW;
         setup();
         runSystemChecks(scenario);
         std::cout << "PASS: " << scenario << '\n';

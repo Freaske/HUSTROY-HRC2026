@@ -79,6 +79,16 @@ python3 scripts/line_trial.py compare docs/evidence/line-follow-v5/v5-r2-usb-con
 
 `capture` dùng Python có `pyserial`, chẳng hạn `~/.platformio/penv/bin/python`. Mỗi file so sánh chứa một lượt, với `LINE_CFG`, `LINE_CAL`, `LINE_STATS` và `LINE_TIMING`. Để thêm kết quả độc lập, `--observations` nhận CSV có cột `log,laps,lap_ms,interventions,evidence`. Để giữ các lượt so sánh tương đương, ghi cùng mốc bắt đầu/kết thúc, loại pin, mặt sàn và người quan sát. Bắt đầu SPD 60, thử ba lượt tương đương trước khi tăng và chốt tốc độ theo ít nhất năm vòng liên tiếp có bằng chứng.
 
+### Xung thử hai bánh bằng nút BOOT
+
+Môi trường `esp32dev-boot-bench` khởi động ở `MOTOR_TEST`, `DISARM` và đợi nút. Sau một lần nhấn rồi thả BOOT, LED GPIO2 nháy nhanh trong 1,5 giây rồi driver nhận PWM tiến 100 cho từng bánh trong 5 giây. Nhấn lại BOOT để hủy đếm ngược hoặc dừng ngay. Firmware dừng và DISARM sau xung, mỗi lượt tiếp theo cần một lần nhấn mới. Tránh giữ BOOT trong lúc bật nguồn hoặc reset vì GPIO0 còn là chân chọn chế độ nạp ESP32.
+
+```sh
+pio run -e esp32dev-boot-bench -t upload --upload-port /dev/cu.usbserial-120
+```
+
+Khi thử không cắm USB, dùng nguồn độc lập đã xác minh để ESP32 vẫn nháy LED sau khi rút cáp. Kê hai bánh, bật VM và đứng cạnh công tắc nguồn trước khi nhấn BOOT. Nạp lại môi trường `esp32dev` để dùng BOOT cho LINE_FOLLOW.
+
 ### Rollback
 
 - `codex/line-follow-v4` là mã nguồn đầy đủ từ patch rollback V4 tìm được, dựa trên `5a22c31`. Tạo worktree riêng bằng `git worktree add ../HUSTROY-HRC2026-v4 codex/line-follow-v4` để build mà không chạm vào bản đang làm.
