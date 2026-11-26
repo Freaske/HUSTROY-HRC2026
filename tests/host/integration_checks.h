@@ -285,47 +285,90 @@ void runSystemChecks(const std::string& scenario) {
         }
         return;
     }
+    if (scenario == "system-boot-bench") {
+        assert(BOOT_BENCH_PROFILE && AUTO_START_ON_BOOT);
+        const auto press = [] { rawInputs[BOOT_START_BUTTON_PIN] = LOW; step(1); step(MODE_BUTTON_DEBOUNCE_MS); };
+        const auto release = [] { rawInputs[BOOT_START_BUTTON_PIN] = HIGH; step(1); step(MODE_BUTTON_DEBOUNCE_MS); };
+        step(AUTO_START_DELAY_MS + 1); // Button held at boot and the line auto-start option are both safe.
+        assert(!modesStatus().armed && modesStatus().mode == RobotMode::MOTOR_TEST);
+        release();
+        step(BOOT_START_COUNTDOWN_MS);
+        assert(!modesStatus().running);
+        expectStopped();
+        press(); release();
+        assert(modesCountdownActive()); expectStopped();
+        rawInputs[BOOT_START_BUTTON_PIN] = LOW; step(1);
+        assert(!modesCountdownActive() && !modesStatus().armed); expectStopped();
+        release();
+        press(); release();
+        step(BOOT_START_COUNTDOWN_MS - 1); expectStopped();
+        step(1); expectSpeeds(BOOT_BENCH_PWM, BOOT_BENCH_PWM);
+        send("BOTH 50\n"); expectSpeeds(BOOT_BENCH_PWM, BOOT_BENCH_PWM);
+        step(BOOT_BENCH_RUN_MS - 1); expectSpeeds(BOOT_BENCH_PWM, BOOT_BENCH_PWM);
+        step(1); expectStopped(); assert(!modesStatus().running && !modesStatus().armed);
+        assert(std::string(modesStatus().stopReason) == "TIMEOUT");
+        press(); release();
+        step(BOOT_START_COUNTDOWN_MS); expectSpeeds(BOOT_BENCH_PWM, BOOT_BENCH_PWM);
+        rawInputs[BOOT_START_BUTTON_PIN] = LOW; step(1);
+        expectStopped(); assert(!modesStatus().running && !modesStatus().armed);
+        assert(std::string(modesStatus().stopReason) == "BOOT_STOP");
+        release(); step(2 * BOOT_BENCH_RUN_MS); expectStopped();
+        assert(!modesCountdownActive() && !modesStatus().running);
+        return;
+    }
     if (scenario == "system-auto") {
         assert(LINE_AUTO_RESUME && !AUTO_START_ON_BOOT);
+        applyCalibration();
+        send("LIMIT=2000\n");
         setPattern("00000");
         send("MODE LINE_FOLLOW\nRUN\n"); // Still needs ARM.
         assert(!modesStatus().running && !modesStatus().armed); expectStopped();
-        send("ARM\nRUN\n"); // Off the line: starts paused, never moves blindly.
-        assert(modesStatus().running && modesStatus().paused && modesStatus().armed);
-        for (int i = 0; i < 5; ++i) { step(); expectStopped(); }
-        setPattern("00100");
-        for (unsigned int i = 1; i < LINE_START_VALID_SAMPLES; ++i) { step(); expectStopped(); }
-        step(); expectSpeeds(BASE_SPEED, BASE_SPEED); assert(!modesStatus().paused);
-        for (const char* bits : {"00000", "11111", "10001", "01010"}) {
-            setPattern(bits); step();
+        const auto startPaused = [] {
+            send("ARM\nRUN\n");
             assert(modesStatus().running && modesStatus().paused && modesStatus().armed);
             expectStopped();
-            step(); expectStopped();
-            setPattern("00100"); warmup(); // Auto-resume after a stable line.
+        };
+        const auto centered = [] {
+            setPattern("00100");
+            for (unsigned int i = 1; i < LINE_START_VALID_SAMPLES; ++i) { followTick(); expectStopped(); }
+            for (int i = 0; i < 22; ++i) followTick();
             expectSpeeds(BASE_SPEED, BASE_SPEED); assert(!modesStatus().paused);
+        };
+        startPaused();
+        for (int i = 0; i < 5; ++i) { followTick(); expectStopped(); }
+        centered();
+        for (const char* bits : {"00000", "11111", "10001", "01010"}) {
+            setPattern(bits); followTick();
+            assert(modesStatus().running && modesStatus().paused && modesStatus().armed);
+            expectStopped();
+            followTick(); expectStopped();
+            centered();
         }
-        for (unsigned long t = 0; t < LINE_FOLLOW_MAX_RUN_MS + 1000; t += CONTROL_PERIOD_MS) step();
-        assert(modesStatus().running); expectSpeeds(BASE_SPEED, BASE_SPEED); // No RUN_TIMEOUT.
+        while (modesStatus().running) followTick();
+        assert(std::string(modesStatus().stopReason) == "RUN_TIMEOUT"); expectStopped();
+        startPaused(); centered();
         step(CONTROL_MAX_GAP_MS + 1); // Stale control still latches.
         assert(!modesStatus().running && std::string(modesStatus().stopReason) == "STALE_CONTROL");
         expectStopped();
-        send("ARM\nRUN\n"); warmup(); expectSpeeds(BASE_SPEED, BASE_SPEED);
+        startPaused(); centered();
         rawInputs[SENSOR_PINS[0]] = SENSOR_INPUT_MODE == SensorInputMode::ANALOG_AO ? 5000 : 2;
-        step(); // ADC/raw fault never auto-resumes.
+        followTick(); // ADC/raw fault never auto-resumes.
         assert(!modesStatus().running && !modesStatus().armed);
         assert(std::string(modesStatus().stopReason) == "SENSOR_FAULT"); expectStopped();
         setPattern("00100"); warmup(); expectStopped();
-        send("ARM\nRUN\n"); warmup(); expectSpeeds(BASE_SPEED, BASE_SPEED);
+        startPaused(); centered();
         send("STOP\n"); expectStopped();
         assert(!modesStatus().running && modesStatus().armed);
         warmup(); expectStopped(); // STOP is final until a new RUN.
-        send("RUN\n"); warmup(); expectSpeeds(BASE_SPEED, BASE_SPEED);
+        send("RUN\n"); expectStopped();
+        for (int i = 0; i < 22; ++i) followTick();
+        expectSpeeds(BASE_SPEED, BASE_SPEED);
         send("!"); expectStopped(); assert(!modesStatus().armed); send("\n");
         warmup(); expectStopped();
         return;
     }
     if (scenario == "system-autostart" || scenario == "system-autostart-cancel") {
-        assert(AUTO_START_ON_BOOT && LINE_AUTO_RESUME);
+        assert(AUTO_START_ON_BOOT && LINE_AUTO_RESUME && SENSOR_INPUT_MODE == SensorInputMode::DIGITAL_DO);
         expectStopped(); assert(!modesStatus().armed);
         if (scenario == "system-autostart-cancel") {
             send("\n");
@@ -340,7 +383,8 @@ void runSystemChecks(const std::string& scenario) {
         assert(modesStatus().mode == RobotMode::LINE_FOLLOW && modesStatus().armed &&
                modesStatus().running && modesStatus().paused);
         expectStopped();
-        warmup(); expectSpeeds(BASE_SPEED, BASE_SPEED);
+        for (int i = 0; i < 25; ++i) followTick();
+        expectSpeeds(BASE_SPEED, BASE_SPEED);
         send("STOP\n"); expectStopped();
         for (int i = 0; i < 300; ++i) step(); // Never re-triggers after STOP.
         assert(!modesStatus().running); expectStopped();

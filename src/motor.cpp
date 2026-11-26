@@ -124,9 +124,6 @@ bool motorIsReady() {
 
 namespace {
 void driveMotors(int leftSpeed, int rightSpeed) {
-// Đặt tốc độ bánh trái/phải (duty có dấu). Tự áp dụng giới hạn MAX_SPEED,
-// cờ đảo chiều và quy ước trái/phải = kênh A/B. Cả hai bằng 0 thì dừng hẳn.
-void setMotorSpeeds(int leftSpeed, int rightSpeed) {
     if (!ready) return;
     if (leftSpeed == 0 && rightSpeed == 0) {
         motorStop();

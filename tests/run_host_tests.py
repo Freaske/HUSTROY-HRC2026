@@ -28,7 +28,7 @@ def configure(changes):
 
 
 def build(folder, changes, expect_failure=False,
-          error_text="Motor GPIOs unassigned, duplicated, reserved or unsafe"):
+          error_text="Motor GPIOs unassigned, duplicated, reserved or unsafe", flags=()):
     # Mirror headers so quoted sibling config.h includes use this fixture too.
     # Otherwise hardware_config.h would silently read the locked production config.
     for header in (ROOT / "include").glob("*.h"):
@@ -36,7 +36,7 @@ def build(folder, changes, expect_failure=False,
             (folder / header.name).write_bytes(header.read_bytes())
     (folder / "config.h").write_text(configure(changes), encoding="utf-8")
     command = ["c++", "-std=c++17", "-Wall", "-Wextra", "-Werror",
-               "-DCONFIG_IDF_TARGET_ESP32", "-I", str(folder),
+               "-DCONFIG_IDF_TARGET_ESP32", *flags, "-I", str(folder),
                "-I", str(ROOT / "tests/host"), "-I", str(ROOT / "include"),
                str(ROOT / "src/motor.cpp"), str(ROOT / "src/main.cpp"),
                str(ROOT / "src/sensors.cpp"), str(ROOT / "src/pid.cpp"), str(ROOT / "src/modes.cpp"),
@@ -94,13 +94,8 @@ def main():
                          "SENSOR_ANALOG_THRESHOLDS": "{{2048,2048,2048,2048,2048}}",
                          "SENSOR_CALIBRATION_CONFIRMED": "true",
                          "SENSOR_DISCONNECT_BIAS_CONFIRMED": "true",
-<<<<<<< Updated upstream
-                         # Classic latched-stop behaviour; auto modes are tested below.
-                         "LINE_AUTO_RESUME": "false",
-                         "AUTO_START_ON_BOOT": "false"}
-=======
-                         "LINE_FOLLOW_STEER_TRIM": "0"}
->>>>>>> Stashed changes
+                         "LINE_FOLLOW_STEER_TRIM": "0",
+                         "LINE_AUTO_RESUME": "false", "AUTO_START_ON_BOOT": "false"}
         for name, changes in [
             ("analog", {}),
             ("digital", {"SENSOR_INPUT_MODE": "SensorInputMode::DIGITAL_DO",
@@ -128,9 +123,13 @@ def main():
             print(f"PASS: RUN blocked by {name}", flush=True)
         build(folder, {**sensor_config, "LINE_AUTO_RESUME": "true"})
         subprocess.run([str(folder / "test"), "system-auto"], check=True)
-        build(folder, {**sensor_config, "LINE_AUTO_RESUME": "true", "AUTO_START_ON_BOOT": "true"})
+        auto_config = {**sensor_config, "LINE_AUTO_RESUME": "true", "AUTO_START_ON_BOOT": "true",
+                       "SENSOR_INPUT_MODE": "SensorInputMode::DIGITAL_DO"}
+        build(folder, auto_config)
         for scenario in ["system-autostart", "system-autostart-cancel"]:
             subprocess.run([str(folder / "test"), scenario], check=True)
+        build(folder, auto_config, flags=("-DHUSTROY_BOOT_BENCH",))
+        subprocess.run([str(folder / "test"), "system-boot-bench"], check=True)
         build(folder, {**sensor_config, "MODE_BUTTON_ENABLED": "true", "MODE_BUTTON_PIN": 27})
         for scenario in ["system-button", "system-held-button"]:
             subprocess.run([str(folder / "test"), scenario], check=True)
