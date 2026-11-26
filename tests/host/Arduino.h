@@ -18,6 +18,13 @@ struct FakeSerial {
     std::deque<unsigned char> input;
     std::string output;
     void begin(uint32_t) {}
+    void setTxBufferSize(std::size_t) {}
+    int txAvailable = 1024;
+    int availableForWrite() const { return txAvailable; }
+    std::size_t write(const uint8_t* bytes, std::size_t size) {
+        output.append(reinterpret_cast<const char*>(bytes), size);
+        return size;
+    }
     int available() { return static_cast<int>(input.size()); }
     int read() { const auto c = input.front(); input.pop_front(); return c; }
     void println(const char* text) { output += text; output += '\n'; }
@@ -30,6 +37,7 @@ struct FakeSerial {
 
 extern FakeSerial Serial;
 unsigned long millis();
+unsigned long micros();
 void pinMode(int pin, int mode);
 void digitalWrite(int pin, int value);
 int digitalRead(int pin);

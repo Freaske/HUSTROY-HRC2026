@@ -1,10 +1,17 @@
 #pragma once
+#include <array>
 #include <cstddef>
 
 struct TuningParameters {
     float kp;
     float kd;
     int speed;
+    int trim;
+    // L+, L-, R+, R-. Each value is a measured motor-duty floor.
+    std::array<int, 4> start;
+    std::array<int, 4> sustain;
+    unsigned long limitMs;
+    unsigned long pulseMs;
 };
 
 void tuningInit();

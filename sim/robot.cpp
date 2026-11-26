@@ -9,6 +9,7 @@
 #include "config.h"
 #include "modes.h"
 #include "tuning.h"
+#include "line_follow.h"
 
 void setup();
 void loop();
@@ -103,7 +104,7 @@ void sendCommand(const std::string& command) {
 }
 
 void advancePose(Pose& pose, const RobotStatus& status) {
-    const double dt = CONTROL_PERIOD_MS / 1000.0;
+    const double dt = (LINE_PERIOD_US / 1000) / 1000.0;
     const double left = status.leftCommand * speedPerPwm;
     const double right = status.rightCommand * speedPerPwm;
     const double turn = (left - right) * dt / wheelTrack;
@@ -165,6 +166,7 @@ void writeFrame(const Pose& pose, unsigned long ms, double distance) {
 }
 
 FakeSerial Serial;
+unsigned long micros() { return clockMs * 1000; }
 unsigned long millis() { return clockMs; }
 void pinMode(int, int) {}
 void digitalWrite(int, int) {}
@@ -186,7 +188,7 @@ int main(int argc, char** argv) {
     std::cout.precision(6);
     if (argc == 1) {
         std::cout << "{\"kp\":" << PID_KP << ",\"kd\":" << PID_KD << ",\"speed\":" << BASE_SPEED
-                  << ",\"maxSpeed\":" << MAX_SPEED << ",\"stepMs\":" << CONTROL_PERIOD_MS
+                  << ",\"maxSpeed\":" << MAX_SPEED << ",\"stepMs\":" << (LINE_PERIOD_US / 1000)
                   << ",\"runMs\":" << LINE_FOLLOW_MAX_RUN_MS << "}\n";
         return 0;
     }
@@ -201,7 +203,7 @@ int main(int argc, char** argv) {
     sendCommand("ARM");
     sampleSensors(pose, track);
     for (unsigned int i = 0; i < LINE_START_VALID_SAMPLES; ++i) {
-        clockMs += CONTROL_PERIOD_MS;
+        clockMs += (LINE_PERIOD_US / 1000);
         loop();
     }
     sendCommand("GO");
@@ -219,7 +221,7 @@ int main(int argc, char** argv) {
         const Point movement = pose.center - previous;
         distance += std::hypot(movement.x, movement.y);
         sampleSensors(pose, track);
-        clockMs += CONTROL_PERIOD_MS;
+        clockMs += (LINE_PERIOD_US / 1000);
         loop();
         if (modesStatus().running && !track.checkpoints.empty() &&
             crossedCheckpoint(previous, pose.center, track.checkpoints.back())) {

@@ -1,12 +1,10 @@
 # HUSTROY-HRC2026
 
-ESP32 + PlatformIO: TB6612FNG, năm cảm biến AO/DO, PID và ba chế độ Serial.
+ESP32 + PlatformIO với TB6612FNG, năm cảm biến AO và bộ điều khiển LINE_FOLLOW V5.
+Khởi động STOPPED/DISARMED. Driver dùng GPIO 25/26/27/19/21/22/23.
+Thứ tự ngõ AO trái sang phải là 33/32/34/35/36.
 
-**Bản thử motor thủ công:** driver bật với GPIO 18/13/14/19/21/22/23 theo
-bảng dây đã trao đổi. Khởi động vẫn STOPPED/DISARMED, cần ARM và lệnh chạy.
-Năm ngõ AO đọc thô trên GPIO 32/33/34/35/36. LINE_FOLLOW chờ hiệu chuẩn và
-kiểm tra tín hiệu khi tuột dây. Điện áp/dòng motor, dây
-và chiều bánh chưa được kiểm chứng độc lập. Ngắt VM khi nạp, kê bánh khi thử.
+Đọc [profile, bằng chứng và quy trình kiểm thử LINE_FOLLOW V5](docs/line-follow-v5.vi.md).
 
 Đọc [quy trình cho bản motor đang bật](docs/manual-motor-bench.vi.md).
 
@@ -49,13 +47,13 @@ Serial 115200 baud, viết HOA và Enter:
 
 - `MODE MOTOR_TEST`, rồi `ARM`: `LEFT 30`, `RIGHT -30`, `BOTH 30`, `SET 50 30`; timeout 10 s và tự DISARM.
 - `MODE SENSOR_TEST`: chỉ đọc/log cảm biến, motor dừng.
-- `MODE LINE_FOLLOW`: `ARM`, chờ line hợp lệ, rồi `RUN`; không tự chạy.
+- `MODE LINE_FOLLOW`: áp dụng profile `CAL`, `ARM`, giữ vạch gần giữa rồi `GO`.
 - `STOP` dừng và giữ ARM; `DISARM` dừng và khóa lại. `!` dừng + DISARM không cần Enter, sau đó Enter để xóa dòng.
 - `HELP`, `STATUS` xem hướng dẫn/trạng thái. Nút mode nếu được bật chỉ chọn chế độ.
 
-Mỗi `RUN` là lần thử tối đa 5 giây mặc định. LOST, INTERSECTION, dữ liệu không
-hợp lệ hoặc vòng điều khiển chậm đều dừng + DISARM, không tự khởi động lại.
-Đổi chế độ luôn DISARM; ARM không thể vượt khóa phần cứng trong config.
+`LIMIT=` đặt thời lượng mỗi lượt LINE_FOLLOW. Mất line quá 300 ms, mẫu giao lộ
+kéo dài, lỗi cảm biến hoặc vòng điều khiển quá hạn sẽ dừng và DISARM. Đổi chế độ
+luôn DISARM. Khóa phần cứng trong config vẫn áp dụng khi ARM.
 
 Đọc [hướng dẫn thử từng bánh, ARM/DISARM và ghi nhận chiều motor](docs/physical-motor-first-drive.vi.md).
 

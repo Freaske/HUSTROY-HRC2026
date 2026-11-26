@@ -11,7 +11,6 @@
 #else
 #include <WiFi.h>
 #include <esp_http_server.h>
-#include <esp_random.h>
 #include "test_page.h"
 #endif
 
@@ -196,8 +195,7 @@ bool startRadio() {
     replies = xQueueCreate(1, sizeof(WebReply));
     if (!commands || !replies) return false;
 
-    char password[14];
-    std::snprintf(password, sizeof(password), "HRC-%08lx", static_cast<unsigned long>(esp_random()));
+    constexpr char password[] = "12345678";
     if (!WiFi.softAP("HUSTROY-HRC2026", password, 1, false, 1)) return false;
 
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
