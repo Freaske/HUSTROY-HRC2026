@@ -24,8 +24,10 @@ constexpr unsigned LINE_AMBIGUITY_LIMIT_US = 80000;
 constexpr unsigned LINE_SETTLE_US = 140000;
 constexpr unsigned LINE_PRIMARY_SEARCH_US = 110000;
 constexpr unsigned LINE_REACQUIRE_SAMPLES = 3;
-constexpr int LINE_SEARCH_PWM_LIMIT = 55;
-constexpr int LINE_REVERSE_PWM_LIMIT = 45;
+// N20 gear motors on 4xAA: 74 duty on one wheel could not pivot the robot on the floor (27/11),
+// so the pivot and inner-wheel reverse limits must sit above the motor dead band.
+constexpr int LINE_SEARCH_PWM_LIMIT = 85;
+constexpr int LINE_REVERSE_PWM_LIMIT = 80;
 constexpr float LINE_DERIVATIVE_TAU_S = 0.045f;
 constexpr float LINE_MIN_PEAK = 0.14f;
 constexpr float LINE_MIN_MASS = 0.21f;

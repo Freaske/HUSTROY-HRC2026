@@ -17,6 +17,8 @@ FIXTURE = dict(zip(
      "MOTOR_BIN1_PIN", "MOTOR_BIN2_PIN", "MOTOR_STBY_PIN"],
     [18, 19, 21, 22, 23, 25, 26],
 ))
+# Logic/integration expectations (ramp timing, exact duties) assume SPD 60 and no motor dead band.
+IDEAL_MOTOR = {"BASE_SPEED": "60", "LINE_FF_START": "{{0,0,0,0}}", "LINE_FF_SUSTAIN": "{{0,0,0,0}}"}
 
 
 def configure(changes):
@@ -60,10 +62,12 @@ def main():
                 subprocess.run([str(folder / "test"), scenario], check=True)
             print("PASS: current bench config driver and arming", flush=True)
         # Exercise USB-only diagnostics even when the production bench config is enabled.
-        build(folder, {"MOTOR_HARDWARE_ENABLED": "false"})
+        # Logic/integration expectations (ramp timing, duties) are written for SPD 60.
+        build(folder, {"MOTOR_HARDWARE_ENABLED": "false", **IDEAL_MOTOR})
         subprocess.run([str(folder / "test"), "disabled"], check=True)
         subprocess.run([str(folder / "test"), "logic"], check=True)
-        enabled = {**FIXTURE, "MOTOR_HARDWARE_ENABLED": "true"}
+        # Manual-start behaviour; the automatic line mode has its own scenario below.
+        enabled = {**FIXTURE, "MOTOR_HARDWARE_ENABLED": "true", "AUTO_LINE_MODE": "false", **IDEAL_MOTOR}
         build(folder, enabled)
         for scenario in ["driver", "serial", "arming", "attach-a", "attach-b", "init-write",
                          "init-stop", "runtime-fault", "stop-fault"]:
@@ -94,13 +98,9 @@ def main():
                          "SENSOR_ANALOG_THRESHOLDS": "{{2048,2048,2048,2048,2048}}",
                          "SENSOR_CALIBRATION_CONFIRMED": "true",
                          "SENSOR_DISCONNECT_BIAS_CONFIRMED": "true",
-<<<<<<< Updated upstream
-                         # Classic latched-stop behaviour; auto modes are tested below.
-                         "LINE_AUTO_RESUME": "false",
-                         "AUTO_START_ON_BOOT": "false"}
-=======
-                         "LINE_FOLLOW_STEER_TRIM": "0"}
->>>>>>> Stashed changes
+                         "LINE_FOLLOW_STEER_TRIM": "0",
+                         # These tests apply CAL= themselves and check GO is blocked without it.
+                         "LINE_USE_BENCH_CALIBRATION": "false"}
         for name, changes in [
             ("analog", {}),
             ("digital", {"SENSOR_INPUT_MODE": "SensorInputMode::DIGITAL_DO",
@@ -126,11 +126,8 @@ def main():
             build(folder, {**sensor_config, **changes})
             subprocess.run([str(folder / "test"), "system-gates"], check=True)
             print(f"PASS: RUN blocked by {name}", flush=True)
-        build(folder, {**sensor_config, "LINE_AUTO_RESUME": "true"})
-        subprocess.run([str(folder / "test"), "system-auto"], check=True)
-        build(folder, {**sensor_config, "LINE_AUTO_RESUME": "true", "AUTO_START_ON_BOOT": "true"})
-        for scenario in ["system-autostart", "system-autostart-cancel"]:
-            subprocess.run([str(folder / "test"), scenario], check=True)
+        build(folder, {**sensor_config, "AUTO_LINE_MODE": "true", "LINE_USE_BENCH_CALIBRATION": "true"})
+        subprocess.run([str(folder / "test"), "system-auto-line"], check=True)
         build(folder, {**sensor_config, "MODE_BUTTON_ENABLED": "true", "MODE_BUTTON_PIN": 27})
         for scenario in ["system-button", "system-held-button"]:
             subprocess.run([str(folder / "test"), scenario], check=True)

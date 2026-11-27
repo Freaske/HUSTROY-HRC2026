@@ -14,7 +14,15 @@ namespace {
 constexpr float MAX_GAIN = 1000.0f;
 constexpr int MAX_TRIM = 30;
 constexpr TuningParameters defaults{PID_KP, PID_KD, BASE_SPEED, LINE_FOLLOW_STEER_TRIM,
-                                    {}, {}, LINE_FOLLOW_MAX_RUN_MS, MOTOR_TEST_TIMEOUT_MS};
+                                    LINE_FF_START, LINE_FF_SUSTAIN, LINE_FOLLOW_MAX_RUN_MS, MOTOR_TEST_TIMEOUT_MS};
+constexpr bool defaultFloorsValid() {
+    for (unsigned i = 0; i < 4; ++i) {
+        const int limit = i % 2 == 0 ? MAX_SPEED : LINE_REVERSE_PWM_LIMIT;
+        if (LINE_FF_SUSTAIN[i] < 0 || LINE_FF_START[i] < LINE_FF_SUSTAIN[i] || LINE_FF_START[i] > limit) return false;
+    }
+    return true;
+}
+static_assert(defaultFloorsValid(), "LINE_FF_START/SUSTAIN: need 0 <= sustain <= start <= limit (reverse <= LINE_REVERSE_PWM_LIMIT)");
 TuningParameters parameters = defaults;
 LineCalibration calibration = LINE_BENCH_CALIBRATION;
 bool calibrated = false;
@@ -54,13 +62,34 @@ bool validFloors(const std::array<int, 4>& start, const std::array<int, 4>& sust
 
 #ifdef ARDUINO_ARCH_ESP32
 constexpr char NVS_NAMESPACE[] = "hustroy-test";
-constexpr char NVS_KEY[] = "line-v5-r1";
-struct SavedProfile { TuningParameters tuning; LineCalibration cal; uint32_t hasCal; };
+// A saved profile also records the config.h defaults it was saved with. When a default
+// is changed in code (e.g. BASE_SPEED), the code value wins; the sensor calibration is kept.
+constexpr char NVS_KEY[] = "line-v5-r4";
+// Older layouts without the defaults record: only their sensor calibration is reused.
+constexpr const char* LEGACY_NVS_KEYS[] = {"line-v5-r3", "line-v5-r1"};
+struct SavedProfile { TuningParameters tuning; TuningParameters defaultsAtSave; LineCalibration cal; uint32_t hasCal; };
+struct LegacyProfile { TuningParameters tuning; LineCalibration cal; uint32_t hasCal; };
+
+bool sameTuning(const TuningParameters& a, const TuningParameters& b) {
+    return a.kp == b.kp && a.kd == b.kd && a.speed == b.speed && a.trim == b.trim && a.start == b.start &&
+           a.sustain == b.sustain && a.limitMs == b.limitMs && a.pulseMs == b.pulseMs;
+}
+
+bool validTuning(const TuningParameters& t) {
+    return validGain(t.kp) && validGain(t.kd) && t.speed > 0 && t.speed <= MAX_SPEED &&
+           t.trim >= -MAX_TRIM && t.trim <= MAX_TRIM && t.limitMs >= 250 && t.limitMs <= LINE_FOLLOW_MAX_RUN_MS &&
+           t.pulseMs >= 100 && t.pulseMs <= MOTOR_TEST_TIMEOUT_MS && validFloors(t.start, t.sustain);
+}
+
+template <typename Profile>
+bool loadProfile(Preferences& flash, const char* key, Profile& out) {
+    return flash.getBytesLength(key) == sizeof(out) && flash.getBytes(key, &out, sizeof(out)) == sizeof(out);
+}
 
 bool saveParameters() {
     Preferences flash;
     if (!flash.begin(NVS_NAMESPACE, false)) return false;
-    const SavedProfile saved{parameters, calibration, calibrated ? 1u : 0u};
+    const SavedProfile saved{parameters, defaults, calibration, calibrated ? 1u : 0u};
     return flash.putBytes(NVS_KEY, &saved, sizeof(saved)) == sizeof(saved);
 }
 #endif
@@ -76,21 +105,30 @@ void tuningInit() {
             calibration.floor[i] = SENSOR_ADC_MAX - calibration.floor[i];
         }
     }
-    calibrated = false;
+    calibrated = LINE_USE_BENCH_CALIBRATION && lineCalibrationValid(calibration, INVERT_LINE_SENSOR);
     ++calibrationRevision;
 #ifdef ARDUINO_ARCH_ESP32
     Preferences flash;
+    if (!flash.begin(NVS_NAMESPACE, true)) return;
+    const auto useCalibration = [](const LineCalibration& cal, uint32_t hasCal) {
+        if (hasCal == 1 && lineCalibrationValid(cal, INVERT_LINE_SENSOR)) {
+            calibration = cal;
+            calibrated = true;
+        }
+    };
     SavedProfile saved{};
-    if (!flash.begin(NVS_NAMESPACE, true) || flash.getBytesLength(NVS_KEY) != sizeof(saved) ||
-        flash.getBytes(NVS_KEY, &saved, sizeof(saved)) != sizeof(saved)) return;
-    const auto& t = saved.tuning;
-    if (validGain(t.kp) && validGain(t.kd) && t.speed > 0 && t.speed <= MAX_SPEED &&
-        t.trim >= -MAX_TRIM && t.trim <= MAX_TRIM && t.limitMs >= 250 && t.limitMs <= LINE_FOLLOW_MAX_RUN_MS &&
-        t.pulseMs >= 100 && t.pulseMs <= MOTOR_TEST_TIMEOUT_MS && validFloors(t.start, t.sustain) &&
-        lineCalibrationValid(saved.cal, INVERT_LINE_SENSOR) && saved.hasCal <= 1) {
-        parameters = t;
-        calibration = saved.cal;
-        calibrated = saved.hasCal == 1;
+    if (loadProfile(flash, NVS_KEY, saved)) {
+        useCalibration(saved.cal, saved.hasCal);
+        // Saved KP/KD/SPD... apply only while config.h defaults are unchanged since SAVE.
+        if (sameTuning(saved.defaultsAtSave, defaults) && validTuning(saved.tuning)) parameters = saved.tuning;
+        return;
+    }
+    for (const char* key : LEGACY_NVS_KEYS) {
+        LegacyProfile legacy{};
+        if (loadProfile(flash, key, legacy)) {
+            useCalibration(legacy.cal, legacy.hasCal);
+            return;
+        }
     }
 #endif
 }

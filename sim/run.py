@@ -30,6 +30,10 @@ SIM_CONFIG = {
     "SENSOR_CALIBRATION_CONFIRMED": "true",
     "SENSOR_DISCONNECT_BIAS_CONFIRMED": "true",
     "LINE_FOLLOW_STEER_TRIM": "0",
+    "AUTO_LINE_MODE": "false",
+    # The 2D model has no motor dead band, so no dead-band compensation either.
+    "LINE_FF_START": "{{0,0,0,0}}",
+    "LINE_FF_SUSTAIN": "{{0,0,0,0}}",
     "MODE_BUTTON_ENABLED": "false",
     "RESERVED_ULTRASONIC_TRIG_PIN": "-1",
     "RESERVED_ULTRASONIC_ECHO_PIN": "-1",
@@ -45,12 +49,12 @@ def build(folder):
     headers = ROOT / "include"
     for header in headers.glob("*.h"):
         (folder / header.name).write_bytes(header.read_bytes())
-    config = (headers / "config.h").read_text()
+    config = (headers / "config.h").read_text(encoding="utf-8")
     for name, value in SIM_CONFIG.items():
         config, count = re.subn(rf"(\b{name}\s*=\s*)[^;]+;", rf"\g<1>{value};", config)
         if count != 1:
             raise ValueError(f"Không tìm thấy đúng một khai báo {name} trong config.h")
-    (folder / "config.h").write_text(config)
+    (folder / "config.h").write_text(config, encoding="utf-8")
     executable = folder / "robot"
     sources = ("main", "modes", "motor", "sensors", "pid", "line_follow", "tuning", "test_link")
     subprocess.run([

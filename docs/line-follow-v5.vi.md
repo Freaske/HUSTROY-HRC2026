@@ -77,6 +77,14 @@ python3 scripts/line_trial.py trace docs/evidence/line-follow-v5/v5-sweep-all.tx
 python3 scripts/line_trial.py compare docs/evidence/line-follow-v5/v5-r2-usb-control.txt.gz
 ```
 
+### Hiệu chuẩn tự động trên sân thật
+
+```sh
+python scripts/line_trial.py calibrate COM7 --save --log cal.txt
+```
+
+Thay `COM7` bằng cổng USB của ESP32 (`pio device list`). Đóng Serial Monitor trước. Script đưa xe về `SENSOR_TEST` (dừng, DISARM) và bật `TRACE=1`, rồi hỏi 6 bước, mỗi bước giữ yên và nhấn Enter (`--seconds` giây ghi mỗi bước, mặc định 2): cả 5 mắt trên giấy trắng, rồi lần lượt đặt mắt S1 (ngoài cùng trái theo hướng chạy) … S5 đè lên vạch. Script tính `WHITE` (trung vị nền trắng), `BLACK` (trung vị của từng mắt khi đè vạch) và `FLOOR` (nền trắng hoặc khi vạch cách từ hai mắt trở lên, cộng biên 22% độ chênh trắng–đen). Profile chỉ được gửi khi: ở bước đặt mắt Sx thì đúng ngõ Sx tối nhất (phát hiện dây cắm đảo), đúng quy tắc `lineCalibrationValid`, nền trắng 100% `Missing` theo cùng thuật toán `observeLine`, và vị trí vạch tăng dần S1→S5. `--save` gửi `SAVE` để giữ sau reset. Không có cổng thì dùng `--white LOG --sweep LOG` để tính từ log quét có sẵn.
+
 `capture` dùng Python có `pyserial`, chẳng hạn `~/.platformio/penv/bin/python`. Mỗi file so sánh chứa một lượt, với `LINE_CFG`, `LINE_CAL`, `LINE_STATS` và `LINE_TIMING`. Để thêm kết quả độc lập, `--observations` nhận CSV có cột `log,laps,lap_ms,interventions,evidence`. Để giữ các lượt so sánh tương đương, ghi cùng mốc bắt đầu/kết thúc, loại pin, mặt sàn và người quan sát. Bắt đầu SPD 60, thử ba lượt tương đương trước khi tăng và chốt tốc độ theo ít nhất năm vòng liên tiếp có bằng chứng.
 
 ### Rollback

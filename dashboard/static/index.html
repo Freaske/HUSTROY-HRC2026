@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bàn thử xe HUSTROY</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="bar">
+  <h1 class="brand">Bàn thử xe HUSTROY</h1>
+  <form class="connect" id="connect-form">
+    <label for="port" class="sr-only">Cổng của xe</label>
+    <select id="port"></select>
+    <button type="button" id="refresh-ports" class="quiet" title="Tìm lại cổng">Tìm cổng</button>
+    <button type="submit" id="connect">Kết nối</button>
+  </form>
+  <p class="status" id="status" role="status">Chưa kết nối</p>
+  <button class="stop" id="stop" title="Dừng và khóa xe ngay (phím Space)">Dừng xe</button>
+</header>
+
+<main>
+  <section class="track" aria-label="Năm mắt cảm biến trên sa bàn">
+    <svg id="track" viewBox="0 0 600 250" role="img" aria-label="Vị trí vạch dưới 5 mắt cảm biến"></svg>
+    <dl class="readouts">
+      <div><dt>Vạch</dt><dd id="r-line">—</dd></div>
+      <div><dt>Vị trí</dt><dd id="r-pos">—</dd></div>
+      <div><dt>Độ tin cậy</dt><dd id="r-conf">—</dd></div>
+      <div><dt>Bánh trái / phải</dt><dd id="r-lr">—</dd></div>
+      <div><dt>Chế độ</dt><dd id="r-mode">—</dd></div>
+    </dl>
+  </section>
+
+  <nav class="tabs" role="tablist" aria-label="Nhóm chức năng">
+    <button role="tab" id="tab-motor" aria-controls="panel-motor" aria-selected="true">Motor</button>
+    <button role="tab" id="tab-sensor" aria-controls="panel-sensor" aria-selected="false" tabindex="-1">Cảm biến</button>
+    <button role="tab" id="tab-runs" aria-controls="panel-runs" aria-selected="false" tabindex="-1">Lượt chạy</button>
+  </nav>
+
+  <section class="panel" id="panel-motor" role="tabpanel" aria-labelledby="tab-motor">
+    <div class="lead">
+      <p>Kê bánh hoặc đặt xe trên sa bàn. Bánh chỉ quay khi bạn đang giữ nút; thả tay là dừng, mất kết nối quá 1 giây xe cũng tự dừng.</p>
+      <button id="motor-mode">Vào chế độ thử motor</button>
+    </div>
+
+    <div class="columns">
+      <div class="block">
+        <h2>Lái bằng tay</h2>
+        <label class="slider">Tốc độ <output id="speed-out">120</output>
+          <input type="range" id="speed" min="20" max="200" step="5" value="120">
+        </label>
+        <div class="pad" aria-label="Giữ để chạy">
+          <button class="hold" data-drive="forward" style="grid-area: up">Tiến<kbd>↑</kbd></button>
+          <button class="hold" data-drive="left" style="grid-area: left">Xoay trái<kbd>←</kbd></button>
+          <button class="hold" data-drive="right" style="grid-area: right">Xoay phải<kbd>→</kbd></button>
+          <button class="hold" data-drive="back" style="grid-area: down">Lùi<kbd>↓</kbd></button>
+        </div>
+        <p class="hint">Bấm nhanh để nhích 0,3 giây, giữ để chạy liên tục. Khi giữ, ô “Bánh trái / phải” ở trên phải hiện số; có số mà bánh không quay nghĩa là lực chưa đủ, nhất là khi xoay tại chỗ: tăng tốc độ.</p>
+        <h3>Từng bánh</h3>
+        <label class="slider">Bánh trái <output id="left-out">0</output>
+          <input type="range" id="left" min="-200" max="200" step="5" value="0">
+        </label>
+        <label class="slider">Bánh phải <output id="right-out">0</output>
+          <input type="range" id="right" min="-200" max="200" step="5" value="0">
+        </label>
+        <button class="hold wide" data-drive="sliders">Giữ để chạy theo 2 thanh trượt</button>
+      </div>
+
+      <div class="block">
+        <h2>Đo vùng chết motor</h2>
+        <p class="hint">Đặt xe trên sa bàn. Lực tăng dần mỗi 1,5 giây; bấm “Xe đã nhích” ngay khi xe bắt đầu chuyển động.</p>
+        <div class="wizard-actions">
+          <button data-wizard="straight">Đo mức chạy thẳng</button>
+          <button data-wizard="pivot">Đo mức xoay tại chỗ</button>
+        </div>
+        <div class="wizard-live" id="wizard-live" hidden>
+          <p class="duty"><span id="wizard-duty">30</span><small>/255</small></p>
+          <button id="wizard-moved" class="primary">Xe đã nhích <kbd>Enter</kbd></button>
+        </div>
+        <table class="figures">
+          <tbody>
+            <tr><th scope="row">Chạy thẳng</th><td id="dead-straight">chưa đo</td></tr>
+            <tr><th scope="row">Xoay tại chỗ</th><td id="dead-pivot">chưa đo</td></tr>
+            <tr><th scope="row">Đang dùng (FF)</th><td id="ff-now">—</td></tr>
+            <tr><th scope="row">Đề xuất (FF)</th><td id="ff-new">đo cả hai mức trước</td></tr>
+          </tbody>
+        </table>
+        <p class="hint" id="ff-note"></p>
+        <button id="ff-apply" disabled>Lưu mức bù vào xe</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel" id="panel-sensor" role="tabpanel" aria-labelledby="tab-sensor" hidden>
+    <div class="lead">
+      <p>Xe đứng yên và gửi giá trị 5 mắt 50 lần mỗi giây lên dải sa bàn ở trên. Vạch mảnh trên mỗi cột là mức trắng, nền và đen đã lưu trong xe.</p>
+      <button id="sensor-mode">Xem cảm biến</button>
+    </div>
+    <div class="block">
+      <h2>Hiệu chuẩn theo sa bàn</h2>
+      <p class="hint">Làm lại khi đổi giấy, băng keo hoặc độ cao cảm biến. Mỗi bước: đặt xe, giữ yên, bấm Ghi (2 giây). S1 là mắt ngoài cùng bên trái khi nhìn theo hướng xe chạy.</p>
+      <ol class="steps" id="cal-steps"></ol>
+      <div class="wizard-actions">
+        <button id="cal-compute" disabled>Tính hiệu chuẩn</button>
+        <button id="cal-apply" class="primary" disabled>Lưu vào xe</button>
+        <button id="cal-reset" class="quiet">Làm lại từ đầu</button>
+      </div>
+      <pre class="report" id="cal-report" hidden></pre>
+    </div>
+  </section>
+
+  <section class="panel" id="panel-runs" role="tabpanel" aria-labelledby="tab-runs" hidden>
+    <div class="lead">
+      <p>Đặt xe lên vạch rồi bật tự chạy. Mỗi lượt kết thúc, thống kê và log 50 mẫu/giây tự lưu vào <code>dashboard/runs</code>. Khi xe đang tự chạy, đừng gửi lệnh khác: lệnh bất kỳ sẽ tắt tự chạy.</p>
+      <button id="auto-on">Bật tự chạy</button>
+    </div>
+    <div class="block">
+      <h2>Lượt đang chạy</h2>
+      <canvas id="chart" height="220" aria-label="Vị trí vạch và lệnh hai bánh trong 10 giây gần nhất"></canvas>
+      <p class="legend"><span class="key pos"></span>Vị trí vạch (−2 trái … +2 phải) <span class="key left"></span>Bánh trái <span class="key right"></span>Bánh phải</p>
+    </div>
+    <div class="block">
+      <div class="block-head">
+        <h2>Các lượt đã chạy</h2>
+        <a href="/api/runs.csv" class="button quiet">Tải bảng CSV</a>
+      </div>
+      <div class="table-wrap">
+        <table class="runs">
+          <thead><tr>
+            <th scope="col">Lúc</th><th scope="col">SPD</th><th scope="col">KP</th><th scope="col">KD</th>
+            <th scope="col">Lý do dừng</th><th scope="col" class="num">Thời gian (s)</th>
+            <th scope="col" class="num">Thấy vạch</th><th scope="col" class="num">Vạch ở mép</th>
+            <th scope="col" class="num">Mất vạch</th><th scope="col" class="num">Lệch TB</th><th scope="col">Log</th>
+          </tr></thead>
+          <tbody id="runs-body"><tr class="empty"><td colspan="11">Chưa có lượt nào. Bật tự chạy để ghi lượt đầu tiên.</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <details class="console">
+    <summary>Nhật ký Serial</summary>
+    <pre id="log" aria-live="off"></pre>
+    <form id="raw-form">
+      <label for="raw" class="sr-only">Gửi lệnh</label>
+      <input id="raw" autocomplete="off" spellcheck="false" placeholder="Gõ lệnh, ví dụ STATUS">
+      <button type="submit">Gửi</button>
+    </form>
+  </details>
+</main>
+<p class="toast" id="toast" role="alert" hidden></p>
+<script src="/app.js"></script>
+</body>
+</html>

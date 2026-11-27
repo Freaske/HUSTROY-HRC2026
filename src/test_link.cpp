@@ -25,11 +25,19 @@ bool radioStartedRun = false;
 
 void execute(const char* command, unsigned long now, LogLine& reply) {
     const auto& status = modesStatus();
+    const bool autoCommand = std::strcmp(command, "AUTO") == 0;
+    if (!autoCommand) modesAutoLine(false, now); // Remote operator takes over, like USB Serial.
     if (tuningCommand(command, status.running, reply.text, sizeof(reply.text))) return;
 
     const char* message = "ERR unknown command; use HELP";
     if (std::strcmp(command, "HELP") == 0) {
-        message = "GET | KP=1.2 | KD=6 | SPD=120 | SAVE | MODE SENSOR_TEST | MODE LINE_FOLLOW | ARM | GO | STOP | DISARM";
+        message = "GET | KP=1.2 | KD=6 | SPD=120 | SAVE | AUTO | MODE SENSOR_TEST | MODE LINE_FOLLOW | ARM | GO | STOP | DISARM";
+    } else if (autoCommand) {
+        if (status.running) message = "ERR STOP before AUTO";
+        else {
+            modesAutoLine(true, now);
+            message = "OK AUTO; runs whenever a centered line is seen";
+        }
     } else if (std::strcmp(command, "MODE SENSOR_TEST") == 0) {
         modesSelect(RobotMode::SENSOR_TEST, now);
         message = "OK MODE SENSOR_TEST";
@@ -116,6 +124,7 @@ void pollRadio() {
         if (byte < 0) break;
         LogLine reply{};
         if (byte == '!') {
+            modesAutoLine(false, millis());
             modesDisarm("EMERGENCY_COMMAND");
             length = 0;
             discardLine = true;

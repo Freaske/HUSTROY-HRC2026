@@ -285,65 +285,61 @@ void runSystemChecks(const std::string& scenario) {
         }
         return;
     }
-    if (scenario == "system-auto") {
-        assert(LINE_AUTO_RESUME && !AUTO_START_ON_BOOT);
-        setPattern("00000");
-        send("MODE LINE_FOLLOW\nRUN\n"); // Still needs ARM.
-        assert(!modesStatus().running && !modesStatus().armed); expectStopped();
-        send("ARM\nRUN\n"); // Off the line: starts paused, never moves blindly.
-        assert(modesStatus().running && modesStatus().paused && modesStatus().armed);
-        for (int i = 0; i < 5; ++i) { step(); expectStopped(); }
-        setPattern("00100");
-        for (unsigned int i = 1; i < LINE_START_VALID_SAMPLES; ++i) { step(); expectStopped(); }
-        step(); expectSpeeds(BASE_SPEED, BASE_SPEED); assert(!modesStatus().paused);
-        for (const char* bits : {"00000", "11111", "10001", "01010"}) {
-            setPattern(bits); step();
-            assert(modesStatus().running && modesStatus().paused && modesStatus().armed);
-            expectStopped();
-            step(); expectStopped();
-            setPattern("00100"); warmup(); // Auto-resume after a stable line.
-            expectSpeeds(BASE_SPEED, BASE_SPEED); assert(!modesStatus().paused);
+    if (scenario == "system-auto-line") {
+        assert(AUTO_LINE_MODE && lineCalibrationApplied());
+        const auto& robot = modesStatus();
+        const auto runUntil = [&robot](bool running, int limit) {
+            for (int i = 0; i < limit && robot.running != running; ++i) followTick();
+            assert(robot.running == running);
+        };
+        const auto staysStopped = [&robot](int ticks) {
+            for (int i = 0; i < ticks; ++i) { followTick(); assert(!robot.running); expectStopped(); }
+        };
+        // Line under the robot at power-on: nothing moves during the start delay.
+        for (unsigned long t = FOLLOW_MS; t < AUTO_LINE_START_DELAY_MS; t += FOLLOW_MS) {
+            followTick(); expectStopped(); assert(!robot.armed && modesCountdownActive());
         }
-        for (unsigned long t = 0; t < LINE_FOLLOW_MAX_RUN_MS + 1000; t += CONTROL_PERIOD_MS) step();
-        assert(modesStatus().running); expectSpeeds(BASE_SPEED, BASE_SPEED); // No RUN_TIMEOUT.
-        step(CONTROL_MAX_GAP_MS + 1); // Stale control still latches.
-        assert(!modesStatus().running && std::string(modesStatus().stopReason) == "STALE_CONTROL");
-        expectStopped();
-        send("ARM\nRUN\n"); warmup(); expectSpeeds(BASE_SPEED, BASE_SPEED);
-        rawInputs[SENSOR_PINS[0]] = SENSOR_INPUT_MODE == SensorInputMode::ANALOG_AO ? 5000 : 2;
-        step(); // ADC/raw fault never auto-resumes.
-        assert(!modesStatus().running && !modesStatus().armed);
-        assert(std::string(modesStatus().stopReason) == "SENSOR_FAULT"); expectStopped();
-        setPattern("00100"); warmup(); expectStopped();
-        send("ARM\nRUN\n"); warmup(); expectSpeeds(BASE_SPEED, BASE_SPEED);
-        send("STOP\n"); expectStopped();
-        assert(!modesStatus().running && modesStatus().armed);
-        warmup(); expectStopped(); // STOP is final until a new RUN.
-        send("RUN\n"); warmup(); expectSpeeds(BASE_SPEED, BASE_SPEED);
-        send("!"); expectStopped(); assert(!modesStatus().armed); send("\n");
-        warmup(); expectStopped();
-        return;
-    }
-    if (scenario == "system-autostart" || scenario == "system-autostart-cancel") {
-        assert(AUTO_START_ON_BOOT && LINE_AUTO_RESUME);
-        expectStopped(); assert(!modesStatus().armed);
-        if (scenario == "system-autostart-cancel") {
-            send("\n");
-            step(AUTO_START_DELAY_MS * 2); warmup();
-            assert(!modesStatus().armed && modesStatus().mode == RobotMode::MOTOR_TEST);
-            expectStopped();
-            return;
-        }
-        step(AUTO_START_DELAY_MS - 1);
-        assert(!modesStatus().armed); expectStopped();
-        step(1);
-        assert(modesStatus().mode == RobotMode::LINE_FOLLOW && modesStatus().armed &&
-               modesStatus().running && modesStatus().paused);
-        expectStopped();
-        warmup(); expectSpeeds(BASE_SPEED, BASE_SPEED);
-        send("STOP\n"); expectStopped();
-        for (int i = 0; i < 300; ++i) step(); // Never re-triggers after STOP.
-        assert(!modesStatus().running); expectStopped();
+        runUntil(true, AUTO_LINE_DETECT_SAMPLES + 10);
+        assert(robot.armed && robot.mode == RobotMode::LINE_FOLLOW && modesAutoLineActive());
+        for (int i = 0; i < 22; ++i) followTick();
+        expectSpeeds(tuningParameters().speed, tuningParameters().speed); // Wheels follow the line.
+        setPattern("00010"); for (int i = 0; i < 12; ++i) followTick();
+        assert(robot.running && robot.leftCommand > robot.rightCommand); // Line right -> turn right.
+        setPattern("00100"); for (int i = 0; i < 12; ++i) followTick();
+        // Line lost: stop, then wait; the line seen again starts the robot again.
+        Serial.output.clear();
+        setPattern("00000"); runUntil(false, 60);
+        assert(Serial.output.find("LINE_STOP REASON=LINE_LOST_TIMEOUT") != std::string::npos);
+        staysStopped(50);
+        assert(robot.armed && modesAutoLineActive());
+        setPattern("00100"); runUntil(true, AUTO_LINE_DETECT_SAMPLES + 10);
+        // All five eyes black (also what a lifted robot reads): stop and never restart.
+        Serial.output.clear();
+        setPattern("11111"); runUntil(false, 20);
+        assert(Serial.output.find("LINE_STOP REASON=LINE_AMBIGUOUS") != std::string::npos);
+        staysStopped(100);
+        // BOOT press stops and turns auto off, even with a line present afterwards.
+        setPattern("00100"); runUntil(true, AUTO_LINE_DETECT_SAMPLES + 10);
+        rawInputs[BOOT_START_BUTTON_PIN] = LOW; followTick();
+        assert(!robot.running && !modesAutoLineActive()); expectStopped();
+        step(MODE_BUTTON_DEBOUNCE_MS);
+        rawInputs[BOOT_START_BUTTON_PIN] = HIGH; followTick(); step(MODE_BUTTON_DEBOUNCE_MS);
+        staysStopped(100);
+        // BOOT press+release turns it on again after the countdown.
+        rawInputs[BOOT_START_BUTTON_PIN] = LOW; followTick(); step(MODE_BUTTON_DEBOUNCE_MS);
+        rawInputs[BOOT_START_BUTTON_PIN] = HIGH; followTick(); step(MODE_BUTTON_DEBOUNCE_MS);
+        assert(modesCountdownActive() && !robot.running);
+        runUntil(true, BOOT_START_COUNTDOWN_MS / FOLLOW_MS + AUTO_LINE_DETECT_SAMPLES + 10);
+        // Serial input hands control to the operator: STOP is final.
+        send("STOP\n"); expectStopped(); staysStopped(100);
+        assert(!modesAutoLineActive());
+        send("AUTO\n");
+        runUntil(true, BOOT_START_COUNTDOWN_MS / FOLLOW_MS + AUTO_LINE_DETECT_SAMPLES + 10);
+        // A sensor fault is never restarted automatically.
+        rawInputs[SENSOR_PINS[0]] = 5000; followTick();
+        assert(!robot.running && std::string(robot.stopReason) == "SENSOR_FAULT"); expectStopped();
+        setPattern("00100"); staysStopped(100);
+        assert(!modesAutoLineActive() && !robot.armed);
         return;
     }
     if (scenario == "system-button" || scenario == "system-held-button") {
@@ -416,8 +412,9 @@ void runSystemChecks(const std::string& scenario) {
         if (!missing) expectStopped(); // Ambiguous frames cancel output on the first sample.
         for (unsigned elapsed = 1; elapsed < limit; ++elapsed) {
             followTick(); assert(modesStatus().running);
-            if (missing && elapsed == 3) expectSpeeds(-LINE_SEARCH_PWM_LIMIT, LINE_SEARCH_PWM_LIMIT);
-            if (missing && elapsed == 12) expectSpeeds(LINE_SEARCH_PWM_LIMIT, -LINE_SEARCH_PWM_LIMIT);
+            const int search = std::min(tuningParameters().speed, LINE_SEARCH_PWM_LIMIT);
+            if (missing && elapsed == 3) expectSpeeds(-search, search);
+            if (missing && elapsed == 12) expectSpeeds(search, -search);
         }
         followTick();
         assert(!modesStatus().running && !modesStatus().armed);
@@ -437,7 +434,8 @@ void runSystemChecks(const std::string& scenario) {
         setPattern(direction < 0 ? "01000" : "00010"); followTick(); followTick();
         setPattern("00100"); followTick();
         setPattern("00000"); for (int i = 0; i < 4; ++i) followTick();
-        expectSpeeds(direction * rightSign * LINE_SEARCH_PWM_LIMIT, -direction * rightSign * LINE_SEARCH_PWM_LIMIT);
+        const int search = std::min(tuningParameters().speed, LINE_SEARCH_PWM_LIMIT);
+        expectSpeeds(direction * rightSign * search, -direction * rightSign * search);
         setPattern("00100"); followTick(); expectStopped();
         for (unsigned i = 1; i < LINE_REACQUIRE_SAMPLES + 22; ++i) followTick();
         assert(modesStatus().running && modesStatus().error == 0);

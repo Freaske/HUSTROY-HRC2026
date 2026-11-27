@@ -7,13 +7,11 @@
 #include "sensors.h"
 
 enum class RobotMode { MOTOR_TEST, SENSOR_TEST, LINE_FOLLOW, RIGHT_LINE };
-enum class RobotMode { MOTOR_TEST, SENSOR_TEST, LINE_FOLLOW };
 // Toàn bộ trạng thái hiện tại của robot (chế độ, ARM, lệnh motor, cảm biến...).
 struct RobotStatus {
     RobotMode mode = RobotMode::MOTOR_TEST;
     bool armed = false; // Operator authorization, separate from hardware readiness.
     bool running = false;
-    bool paused = false; // LINE_FOLLOW running but waiting for a stable line (motors coast).
     int leftCommand = 0;
     int rightCommand = 0;
     float error = 0;
@@ -26,10 +24,6 @@ struct RobotStatus {
 void modesInit(unsigned long now);
 // Gọi liên tục trong loop(): đọc cảm biến, chạy PID, xử lý Serial/nút, timeout.
 void modesUpdate(unsigned long now);
-void modesSelect(RobotMode mode, unsigned long now); // Always stops; never arms.
-bool modesRun(unsigned long now); // Start a line-controlled trial after ARM.
-bool modesArm(); // Stops first; no motion.
-void modesDisarm(const char* reason); // Stops and revokes operator authorization.
 // Chuyển chế độ. Always stops; never arms.
 void modesSelect(RobotMode mode, unsigned long now);
 // Bắt đầu dò line. LINE_FOLLOW start request; requires prior ARM.
@@ -42,9 +36,11 @@ void modesDisarm(const char* reason);
 void modesStop(const char* reason);
 // Đọc trạng thái hiện tại (chỉ đọc).
 const RobotStatus& modesStatus();
-<<<<<<< Updated upstream
-// Tên chuỗi của chế độ (để in Serial).
-=======
+// True trong lúc đếm ngược sau khi nhấn-thả nút BOOT / chờ tự bám line (LED nháy nhanh).
 bool modesCountdownActive();
->>>>>>> Stashed changes
+// True khi chế độ tự bám line đã ARM và đang chờ line hoặc đang chạy.
+bool modesAutoLineActive();
+// Bật (đếm ngược rồi chờ line) hoặc tắt chế độ tự bám line. Bật bị bỏ qua khi đang chạy.
+void modesAutoLine(bool enable, unsigned long now);
+// Tên chuỗi của chế độ (để in Serial).
 const char* modeName(RobotMode mode);

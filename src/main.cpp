@@ -34,17 +34,20 @@ void setup() {
     ledStartedAt = millis();
 }
 
-// Lặp vô hạn: cập nhật bộ điều khiển chế độ và nháy LED mỗi
-// STATUS_LED_INTERVAL_MS (không dùng delay để vòng lặp luôn nhanh).
+// Lặp vô hạn: cập nhật bộ điều khiển chế độ và LED (không dùng delay).
+// LED GPIO2: nháy nhanh = đếm ngược | sáng liền = đang chạy |
+// nháy chậm 1 Hz = tự bám line đang chờ thấy line | nháy đôi = đứng yên, không tự chạy.
 void loop() {
     const unsigned long now = millis();
     modesUpdate(now);
     testLinkUpdate(millis());
-    const unsigned long phase = (now - ledStartedAt) % STATUS_LED_CYCLE_MS;
-    const bool nextLedOn = modesCountdownActive() ?
-        (((now - ledStartedAt) % 100UL) < 50UL) :
-        (phase < STATUS_LED_PULSE_MS ||
-         (phase >= 2 * STATUS_LED_PULSE_MS && phase < 3 * STATUS_LED_PULSE_MS));
+    const unsigned long elapsed = now - ledStartedAt;
+    const unsigned long phase = elapsed % STATUS_LED_CYCLE_MS;
+    bool nextLedOn = phase < STATUS_LED_PULSE_MS ||
+                     (phase >= 2 * STATUS_LED_PULSE_MS && phase < 3 * STATUS_LED_PULSE_MS);
+    if (modesCountdownActive()) nextLedOn = (elapsed % 100UL) < 50UL;
+    else if (modesStatus().running) nextLedOn = true;
+    else if (modesAutoLineActive()) nextLedOn = (elapsed % 1000UL) < 500UL;
     if (nextLedOn != ledOn) {
         ledOn = nextLedOn;
         digitalWrite(STATUS_LED_PIN, ledOn ? HIGH : LOW);

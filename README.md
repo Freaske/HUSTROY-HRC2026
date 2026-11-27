@@ -11,6 +11,22 @@ Thứ tự ngõ AO trái sang phải là 33/32/34/35/36.
 Tài liệu cho đợt test của Nam gồm [chỉnh tham số và log trên điện thoại](docs/test-link.vi.md),
 [kịch bản test sa bàn](docs/ke-hoach-test.vi.md) và [khảo sát encoder](docs/encoder.vi.md).
 
+## Bàn thử xe trên laptop
+
+Cắm USB của xe, đóng Serial Monitor, rồi chạy `python dashboard/server.py` (cần
+`pyserial`, có sẵn trong Python của PlatformIO). Trình duyệt tự mở trang
+`http://127.0.0.1:8770`: chọn cổng, bấm **Kết nối**.
+
+- **Motor:** giữ nút để chạy tiến/lùi/xoay hoặc theo 2 thanh trượt; thả tay là dừng,
+  firmware tự dừng sau 1 s nếu mất kết nối. Đo vùng chết motor và lưu `FF=` vào xe.
+- **Cảm biến:** 5 mắt hiển thị trực tiếp trên dải sa bàn; hiệu chuẩn 6 bước giống
+  `scripts/line_trial.py calibrate`.
+- **Lượt chạy:** bật tự chạy, xem biểu đồ vị trí vạch và lệnh 2 bánh; mỗi lượt tự lưu
+  thống kê vào `dashboard/runs/runs.csv` và log 50 mẫu/giây vào `dashboard/runs/run-*.txt`.
+
+Nút **Dừng xe** (hoặc phím Space) gửi `!`: dừng và khóa xe ngay. Tắt trang/server trước
+khi nạp firmware, vì server giữ cổng COM.
+
 ## Mô phỏng xe trên sa bàn
 
 Chạy `python3 sim/run.py` (cần Python 3 và trình biên dịch `c++` hỗ trợ C++17),
